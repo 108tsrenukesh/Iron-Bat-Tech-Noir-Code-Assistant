@@ -174,6 +174,7 @@ export default function App() {
       const data = await response.json();
       let replyText = data.reply || 'Analysis complete. Try asking a specific code question.';
       let bullets: string[] = data.bullets || [];
+      let statusLabel = data.status || 'ANALYSIS COMPLETE';
 
       if (replyText.includes('›')) {
         const parts = replyText.split(/›\s*/);
@@ -181,11 +182,15 @@ export default function App() {
         bullets = parts.slice(1).map((b: string) => b.trim()).filter(Boolean);
       }
 
+      if (replyText.startsWith('DIAGNOSTIC DENIED')) {
+        statusLabel = 'DIAGNOSTIC DENIED';
+      }
+
       setMessages((prev) => [...prev, {
         id: `ai-${Date.now()}`,
         sender: 'ai',
         text: replyText,
-        statusLabel: data.status || 'ANALYSIS COMPLETE',
+        statusLabel,
         bullets: bullets.length > 0 ? bullets : undefined,
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       }]);

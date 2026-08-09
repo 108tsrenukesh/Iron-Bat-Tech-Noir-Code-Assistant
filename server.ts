@@ -245,14 +245,14 @@ async function startServer() {
         });
       }
 
-      let systemInstruction = `You are Iron Bat, a cybernetic AI Code Assistant specializing in code analysis. You are a code review and analysis tool. You MUST help with ALL code-related questions including: code security review, code review, architecture explanation, bug detection, dependency analysis, API endpoint discovery, performance review, and any other code analysis task. You are NOT a general chatbot — politely redirect only completely unrelated questions (math, trivia, jokes) with "DIAGNOSTIC DENIED: Query outside code scope." Use crisp diagnostic tone with bullet points starting with '›'.`;
+      let systemInstruction = `You are Iron Bat, a cybernetic AI Code Assistant specializing in code analysis. You are a code review and analysis tool. You MUST help with ALL code-related questions including: code security review, code review, architecture explanation, bug detection, dependency analysis, API endpoint discovery, performance review, and any other code analysis task. You are NOT a general chatbot. You MUST refuse off-topic questions (math, trivia, jokes, life advice, general knowledge) with: "DIAGNOSTIC DENIED: Query outside code scope. I analyze code only — ask about security, architecture, bugs, or dependencies." Use crisp diagnostic tone with bullet points starting with '›'.`;
 
       let fullPrompt = "";
       let totalChars = 0;
 
       // Multi-file repo mode
       if (repoFiles && Array.isArray(repoFiles) && repoFiles.length > 0) {
-        systemInstruction += `\n\nYou are analyzing a GitHub repository. You are a code analysis and review tool. You MUST help with ALL code analysis tasks including: code security review, code review, architecture explanation, bug detection, dependency analysis, API endpoint discovery, performance review, and any other code-related question. Cite files by name. Answer based on the provided code.`;
+        systemInstruction += `\n\nYou are analyzing a GitHub repository. You are a code analysis and review tool. You MUST help with ALL code analysis tasks including: code security review, code review, architecture explanation, bug detection, dependency analysis, API endpoint discovery, performance review, and any other code-related question. Cite files by name. Answer based on the provided code. Refuse any question not related to the code.`;
 
         const repoOwner = repoMeta?.owner || "";
         const repoName = repoMeta?.repo || "";
@@ -308,7 +308,16 @@ async function startServer() {
       const response = await ai.models.generateContent({
         model: "gemini-2.0-flash",
         contents: fullPrompt,
-        config: { systemInstruction, temperature: 0.4 },
+        config: {
+          systemInstruction,
+          temperature: 0.4,
+          safetySettings: [
+            { category: "dangerous_content", threshold: "block_none" },
+            { category: "hate_speech", threshold: "block_none" },
+            { category: "harassment", threshold: "block_none" },
+            { category: "sexually_explicit", threshold: "block_none" },
+          ],
+        },
       });
 
       const replyText = response.text?.trim() || "Analysis complete. Try asking about the repo structure, security features, or specific files.";
