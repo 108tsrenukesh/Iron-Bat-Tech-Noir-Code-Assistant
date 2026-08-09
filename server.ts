@@ -132,6 +132,32 @@ async function fetchWithTimeout(url: string, opts: RequestInit = {}, timeoutMs =
   }
 }
 
+// ── Grok fallback helper ──────────────────────────────────────────
+async function callGrok(systemInstruction: string, userPrompt: string): Promise<string | null> {
+  const apiKey = process.env.GROK_API_KEY;
+  if (!apiKey || apiKey.length < 10) return null;
+
+  const res = await fetchWithTimeout("https://api.x.ai/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model: "grok-3-mini-fast",
+      messages: [
+        { role: "system", content: systemInstruction },
+        { role: "user", content: userPrompt },
+      ],
+      temperature: 0.4,
+    }),
+  }, 30_000);
+
+  if (!res.ok) return null;
+  const data = await res.json() as any;
+  return data?.choices?.[0]?.message?.content?.trim() || null;
+}
+
 async function startServer() {
   const app = express();
   const PORT = Number(process.env.PORT) || 3000;
@@ -165,6 +191,7 @@ async function startServer() {
     res.json({
       status: "ok",
       hasGeminiKey: Boolean(getGeminiClient()),
+      hasGrokKey: Boolean(process.env.GROK_API_KEY && process.env.GROK_API_KEY.length > 10),
       timestamp: new Date().toISOString(),
     });
   });
@@ -383,17 +410,54 @@ RULES:
 
       fullPrompt += `[USER QUERY]: ${message}`;
 
-      const response = await ai.models.generateContent({
-        model: "gemini-2.0-flash",
-        contents: fullPrompt,
-        config: { systemInstruction, temperature: 0.4 },
-      });
+      let replyText: string;
+      let usedProvider = "gemini";
 
-      const replyText = response.text?.trim() || "Analysis complete. Try asking about the repo structure, security features, or specific files.";
+      try {
+        const response = await ai.models.generateContent({
+          model: "gemini-2.0-flash",
+          contents: fullPrompt,
+          config: { systemInstruction, temperature: 0.4 },
+        });
+        replyText = response.text?.trim() || "";
+      } catch (geminiErr: any) {
+        const isQuota = geminiErr?.message?.includes("quota") || geminiErr?.message?.includes("429") || geminiErr?.message?.includes("RESOURCE_EXHAUSTED");
+        if (isQuota) {
+          console.log("Gemini quota hit, falling back to Grok");
+          const grokReply = await callGrok(systemInstruction, fullPrompt);
+          if (grokReply) {
+            replyText = grokReply;
+            usedProvider = "grok";
+          } else {
+            const retryMatch = geminiErr?.message?.match(/retry in (\d+)/);
+            const retrySeconds = retryMatch ? parseInt(retryMatch[1]) : null;
+            return res.json({
+              reply: retrySeconds
+                ? `API quota limit reached. Resets in ~${retrySeconds}s. Try again shortly.`
+                : "API quota limit reached. Free tier allows 20 requests/day. Try again tomorrow.",
+              status: "ERROR",
+              isFallback: true,
+            });
+          }
+        } else if (geminiErr?.message?.includes("safety") || geminiErr?.message?.includes("blocked")) {
+          return res.json({
+            reply: "Response blocked by content filters. Try rephrasing your question about the code.",
+            status: "ERROR",
+            isFallback: true,
+          });
+        } else {
+          throw geminiErr;
+        }
+      }
+
+      if (!replyText) {
+        replyText = "Analysis complete. Try asking about the repo structure, security features, or specific files.";
+      }
 
       return res.json({
         reply: replyText,
         status: "ANALYSIS COMPLETE",
+        provider: usedProvider,
         isFallback: false,
       });
     } catch (err: any) {
