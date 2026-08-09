@@ -6,6 +6,8 @@ interface AIChatPaneProps {
   onSendMessage: (text: string) => void;
   isLoading: boolean;
   onSuggestionClick?: (suggestion: string) => void;
+  isRepoMode?: boolean;
+  repoName?: string;
 }
 
 export const AIChatPane: React.FC<AIChatPaneProps> = ({
@@ -13,6 +15,8 @@ export const AIChatPane: React.FC<AIChatPaneProps> = ({
   onSendMessage,
   isLoading,
   onSuggestionClick,
+  isRepoMode,
+  repoName,
 }) => {
   const [inputText, setInputText] = useState('');
   const [isRecording, setIsRecording] = useState(false);
@@ -140,7 +144,10 @@ export const AIChatPane: React.FC<AIChatPaneProps> = ({
 
       {/* Suggestion Chips */}
       <div className="px-4 py-1.5 flex gap-2 overflow-x-auto bg-[#08080C] border-t border-[#1A1A22] no-scrollbar">
-        {['Explain authenticateUser', 'Review Error Handling', 'Trace Sequence', 'Check Security Vulnerabilities'].map((chip, idx) => (
+        {(isRepoMode
+          ? ['What is this repo about?', 'What security features?', 'How is the code structured?', 'Find all API endpoints', 'Check for vulnerabilities']
+          : ['Explain authenticateUser', 'Review Error Handling', 'Trace Sequence', 'Check Security Vulnerabilities']
+        ).map((chip, idx) => (
           <button
             key={idx}
             onClick={() => onSuggestionClick && onSuggestionClick(chip)}
@@ -175,7 +182,7 @@ export const AIChatPane: React.FC<AIChatPaneProps> = ({
             onChange={(e) => setInputText(e.target.value)}
             onFocus={() => setIsFocused(true)}
             onBlur={() => setIsFocused(false)}
-            placeholder="Ask Iron Bat about the code..."
+            placeholder={isRepoMode ? `Ask about ${repoName || 'the repo'}...` : "Ask Iron Bat about the code..."}
             className="flex-1 bg-[#1A1A22] border border-[#3A3A44] rounded-full py-2.5 px-4 font-code text-xs md:text-sm text-[#E0E0E0] placeholder-[#6A7280] focus:outline-none focus:border-[#00F2FE] focus:shadow-[0_0_12px_rgba(0,242,254,0.3)] transition-all"
           />
 

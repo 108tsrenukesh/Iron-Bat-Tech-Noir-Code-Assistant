@@ -55,3 +55,29 @@ export interface SystemConfig {
   glowTheme: 'cyan' | 'gold' | 'neon';
   fontSize: 'sm' | 'md' | 'lg';
 }
+
+export interface RepoFile {
+  path: string;
+  size: number;
+  ext: string;
+}
+
+export interface RepoMeta {
+  owner: string;
+  repo: string;
+  branch: string;
+  totalFiles: number;
+  filteredFiles: number;
+  files: RepoFile[];
+  readme: string;
+}
+
+export interface ConnectedRepo {
+  id: string;
+  owner: string;
+  repo: string;
+  branch: string;
+  filteredFiles: number;
+  totalFiles: number;
+  connectedAt: string;
+}
