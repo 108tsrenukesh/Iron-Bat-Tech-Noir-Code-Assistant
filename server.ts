@@ -236,14 +236,14 @@ async function startServer() {
         });
       }
 
-      let systemInstruction = `You are Iron Bat, a cybernetic AI Code Assistant. You ONLY answer questions about the code provided. Refuse off-topic questions with "DIAGNOSTIC DENIED: Query outside code scope." Use crisp diagnostic tone with bullet points starting with '›'.`;
+      let systemInstruction = `You are Iron Bat, a cybernetic AI Code Assistant specializing in code analysis. You are a code review and analysis tool. You MUST help with ALL code-related questions including: security vulnerability analysis, code review, architecture explanation, bug detection, dependency analysis, API endpoint discovery, performance review, and any other code analysis task. You are NOT a general chatbot — politely redirect only completely unrelated questions (math, trivia, jokes) with "DIAGNOSTIC DENIED: Query outside code scope." Use crisp diagnostic tone with bullet points starting with '›'.`;
 
       let fullPrompt = "";
       let totalChars = 0;
 
       // Multi-file repo mode
       if (repoFiles && Array.isArray(repoFiles) && repoFiles.length > 0) {
-        systemInstruction += `\n\nYou are analyzing a GitHub repository. Cite files by name. Answer based ONLY on provided code.`;
+        systemInstruction += `\n\nYou are analyzing a GitHub repository. You are a code analysis and review tool. You MUST help with ALL code analysis tasks including: security vulnerability scanning, code review, architecture explanation, bug detection, dependency analysis, API endpoint discovery, performance review, and any other code-related question. Cite files by name. Answer based on the provided code.`;
 
         const repoOwner = repoMeta?.owner || "";
         const repoName = repoMeta?.repo || "";
