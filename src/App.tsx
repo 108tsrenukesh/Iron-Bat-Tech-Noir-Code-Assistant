@@ -3,13 +3,12 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { AppTab, ChatMessage, CodeFile, RepoMeta, ConnectedRepo } from './types';
+import { AppTab, ChatMessage, RepoMeta, ConnectedRepo } from './types';
 import { INITIAL_FILES } from './data/mockCodebase';
 import { Header } from './components/Header';
 import { Navigation } from './components/Navigation';
-import { CodeViewer } from './components/CodeViewer';
 import { AIChatPane } from './components/AIChatPane';
 import { TraceSequenceView } from './components/TraceSequenceView';
 import { ReposView } from './components/ReposView';
@@ -17,19 +16,13 @@ import { ConfigView } from './components/ConfigView';
 import { SearchModal } from './components/SearchModal';
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<AppTab>('assistant');
+  const [activeTab, setActiveTab] = useState<AppTab>('repos');
   const [currentFileId, setCurrentFileId] = useState<string>('auth.js');
-  const [files] = useState<Record<string, CodeFile>>(INITIAL_FILES);
-  const [isCodeCollapsed, setIsCodeCollapsed] = useState(false);
-  const [codeSplitRatio, setCodeSplitRatio] = useState<number>(45);
+  const [files] = useState(INITIAL_FILES);
   const [showSearch, setShowSearch] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [isConnectingRepo, setIsConnectingRepo] = useState(false);
 
-  const isDraggingRef = useRef(false);
-  const containerRef = useRef<HTMLDivElement>(null);
-
-  // Repo state
   const [connectedRepos, setConnectedRepos] = useState<ConnectedRepo[]>([]);
   const [activeRepoMeta, setActiveRepoMeta] = useState<RepoMeta | null>(null);
   const [activeRepoFileContents, setActiveRepoFileContents] = useState<Record<string, string>>({});
@@ -57,35 +50,6 @@ export default function App() {
   ]);
 
   const currentFile = files[currentFileId] || files['auth.js'];
-
-  // ── Drag handling with proper cleanup ─────────────────────────
-  const updateSplit = useCallback((clientY: number) => {
-    if (!containerRef.current) return;
-    const rect = containerRef.current.getBoundingClientRect();
-    const offsetY = clientY - rect.top;
-    let ratio = (offsetY / rect.height) * 100;
-    if (ratio < 15) ratio = 15;
-    if (ratio > 80) ratio = 80;
-    setCodeSplitRatio(ratio);
-    if (isCodeCollapsed) setIsCodeCollapsed(false);
-  }, [isCodeCollapsed]);
-
-  useEffect(() => {
-    const onMouseMove = (e: MouseEvent) => { if (isDraggingRef.current) updateSplit(e.clientY); };
-    const onTouchMove = (e: TouchEvent) => { if (isDraggingRef.current && e.touches[0]) updateSplit(e.touches[0].clientY); };
-    const onEnd = () => { isDraggingRef.current = false; };
-
-    document.addEventListener('mousemove', onMouseMove);
-    document.addEventListener('mouseup', onEnd);
-    document.addEventListener('touchmove', onTouchMove);
-    document.addEventListener('touchend', onEnd);
-    return () => {
-      document.removeEventListener('mousemove', onMouseMove);
-      document.removeEventListener('mouseup', onEnd);
-      document.removeEventListener('touchmove', onTouchMove);
-      document.removeEventListener('touchend', onEnd);
-    };
-  }, [updateSplit]);
 
   // ── Connect repo ──────────────────────────────────────────────
   const handleConnectRepo = async (repoUrl: string): Promise<void> => {
@@ -290,33 +254,31 @@ export default function App() {
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 1.02 }}
               transition={{ duration: 0.25, ease: "easeOut" }}
-              ref={containerRef}
               className="flex flex-col h-[calc(100vh-8rem)] w-full relative overflow-hidden"
             >
               {!activeRepoMeta ? (
-                <>
-                  <div style={{ height: isCodeCollapsed ? '44px' : `${codeSplitRatio}%` }} className="flex flex-col transition-all duration-150 relative overflow-hidden">
-                    <CodeViewer
-                      currentFile={currentFile}
-                      allFiles={files}
-                      onSelectFile={(id) => setCurrentFileId(id)}
-                      onLineClick={(lineNum, lineText) => handleSendMessage(`Explain line ${lineNum}: "${lineText.trim()}"`)}
-                      isCollapsed={isCodeCollapsed}
-                      onToggleCollapse={() => setIsCodeCollapsed(!isCodeCollapsed)}
-                    />
+                /* Empty state: no repo connected */
+                <div className="flex-1 flex flex-col items-center justify-center gap-6 p-8 text-center">
+                  <div className="w-20 h-20 rounded-full bg-[#00F2FE]/10 border-2 border-[#00F2FE]/30 flex items-center justify-center">
+                    <span className="material-symbols-outlined text-[#00F2FE] text-3xl">link</span>
                   </div>
-                  <div
-                    onMouseDown={() => { isDraggingRef.current = true; }}
-                    onTouchStart={() => { isDraggingRef.current = true; }}
-                    className="h-[24px] flex-shrink-0 bg-[#1A1A22] border-t border-b border-[#3A3A44] flex items-center justify-between px-4 cursor-row-resize select-none relative z-30 group hover:bg-[#22222A] transition-colors"
+                  <div className="flex flex-col gap-2">
+                    <h2 className="font-code text-lg font-bold text-[#E0E0E0] uppercase tracking-wider">No Repository Connected</h2>
+                    <p className="font-body text-sm text-[#A0A0A0] max-w-sm">
+                      Connect a GitHub repository to start analyzing code, asking questions, and tracing call chains.
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => setActiveTab('repos')}
+                    className="py-3 px-6 rounded-2xl bg-[#FFD700]/10 border-2 border-[#FFD700] text-[#FFD700] font-code text-xs font-bold uppercase tracking-widest hover:bg-[#FFD700]/20 transition-all shadow-[0_0_15px_rgba(255,215,0,0.2)]"
                   >
-                    <div className="w-6" />
-                    <div className="w-[36px] h-[6px] rounded-full bg-[#3A3A44] group-hover:bg-[#00F2FE] transition-colors shadow-[0_0_8px_rgba(0,242,254,0.3)]" />
-                    <button type="button" onClick={(e) => { e.stopPropagation(); setIsCodeCollapsed(!isCodeCollapsed); }} className="w-6 h-6 rounded-full flex items-center justify-center text-[#A0A0A0] hover:text-[#00F2FE] transition-colors">
-                      <span className="material-symbols-outlined text-sm">{isCodeCollapsed ? 'expand_more' : 'expand_less'}</span>
-                    </button>
+                    <span className="material-symbols-outlined text-sm align-middle mr-2">add_link</span>
+                    Connect a Repository
+                  </button>
+                  <div className="flex flex-col gap-1.5 text-[#6A7280] font-body text-xs">
+                    <span>Or try the demo mode with the mock codebase below</span>
                   </div>
-                </>
+                </div>
               ) : (
                 <div className="h-12 flex-shrink-0 bg-[#1A1A22] border-b border-[#3A3A44] flex items-center px-4 gap-3">
                   <span className="material-symbols-outlined text-[#00F2FE] text-sm">folder_open</span>
