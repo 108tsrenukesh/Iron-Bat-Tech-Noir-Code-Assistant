@@ -144,7 +144,7 @@ async function callFallback(systemInstruction: string, userPrompt: string): Prom
       Authorization: `Bearer ${apiKey}`,
     },
     body: JSON.stringify({
-      model: "deepseek/deepseek-chat-v3-0324:free",
+      model: "deepseek/deepseek-chat-v3-0324",
       messages: [
         { role: "system", content: systemInstruction },
         { role: "user", content: userPrompt },
