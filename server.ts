@@ -92,6 +92,9 @@ async function startServer() {
   // Body parsing with size limit
   app.use(express.json({ limit: MAX_REQUEST_BODY_BYTES }));
 
+  // Trust proxy (required for rate limiting behind Render's reverse proxy)
+  app.set("trust proxy", 1);
+
   // Global rate limit
   app.use(generalLimiter);
 
@@ -316,12 +319,16 @@ async function startServer() {
         isFallback: false,
       });
     } catch (err: any) {
-      console.error("Gemini API Error:", err?.message, err?.stack);
-      const isQuota = err?.message?.includes("quota") || err?.message?.includes("429");
+      console.error("Gemini API Error:", err?.message);
+      const isQuota = err?.message?.includes("quota") || err?.message?.includes("429") || err?.message?.includes("RESOURCE_EXHAUSTED");
+      const retryMatch = err?.message?.match(/retry in (\d+)/);
+      const retrySeconds = retryMatch ? parseInt(retryMatch[1]) : null;
       const isSafety = err?.message?.includes("safety") || err?.message?.includes("blocked");
       return res.json({
         reply: isQuota
-          ? "API quota exceeded. Please try again later."
+          ? retrySeconds
+            ? `API quota limit reached. Resets in ~${retrySeconds}s. Try again shortly.`
+            : "API quota limit reached. Free tier allows 20 requests/day. Try again tomorrow."
           : isSafety
             ? "Response blocked by content filters. Try rephrasing your question about the code."
             : "AI analysis encountered an error. Try rephrasing your question.",
