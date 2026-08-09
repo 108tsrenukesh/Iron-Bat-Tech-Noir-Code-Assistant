@@ -134,11 +134,18 @@ async function startServer() {
       const { owner, repo, branch } = parsed;
       const apiUrl = `https://api.github.com/repos/${owner}/${repo}/git/trees/${encodeURIComponent(branch)}?recursive=1`;
 
-      const treeRes = await fetchWithTimeout(apiUrl, {
-        headers: { Accept: "application/vnd.github.v3+json", "User-Agent": "IronBat/1.0" },
-      });
+      const ghHeaders: Record<string, string> = { Accept: "application/vnd.github.v3+json", "User-Agent": "IronBat/1.0" };
+      const ghToken = process.env.GITHUB_TOKEN;
+      if (ghToken) ghHeaders["Authorization"] = `Bearer ${ghToken}`;
+
+      const treeRes = await fetchWithTimeout(apiUrl, { headers: ghHeaders });
 
       if (!treeRes.ok) {
+        if (treeRes.status === 403 || treeRes.status === 429) {
+          return res.status(429).json({
+            error: "GitHub API rate limit exceeded (60 req/hr unauthenticated). Try again in a few minutes, or set GITHUB_TOKEN in Render environment for 5,000 req/hr.",
+          });
+        }
         return res.status(treeRes.status >= 500 ? 502 : treeRes.status).json({
           error: treeRes.status === 404 ? "Repository not found or is private." : `GitHub API error (${treeRes.status})`,
         });
