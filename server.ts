@@ -132,19 +132,19 @@ async function fetchWithTimeout(url: string, opts: RequestInit = {}, timeoutMs =
   }
 }
 
-// ── Grok fallback helper ──────────────────────────────────────────
+// ── Groq fallback helper ──────────────────────────────────────────
 async function callGrok(systemInstruction: string, userPrompt: string): Promise<string | null> {
   const apiKey = process.env.GROK_API_KEY;
   if (!apiKey || apiKey.length < 10) return null;
 
-  const res = await fetchWithTimeout("https://api.x.ai/v1/chat/completions", {
+  const res = await fetchWithTimeout("https://api.groq.com/openai/v1/chat/completions", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${apiKey}`,
     },
     body: JSON.stringify({
-      model: "grok-3-mini-fast",
+      model: "llama-3.3-70b-versatile",
       messages: [
         { role: "system", content: systemInstruction },
         { role: "user", content: userPrompt },
@@ -153,7 +153,11 @@ async function callGrok(systemInstruction: string, userPrompt: string): Promise<
     }),
   }, 30_000);
 
-  if (!res.ok) return null;
+  if (!res.ok) {
+    const errBody = await res.text().catch(() => "");
+    console.error(`Groq API error (${res.status}):`, errBody.slice(0, 200));
+    return null;
+  }
   const data = await res.json() as any;
   return data?.choices?.[0]?.message?.content?.trim() || null;
 }
