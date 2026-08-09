@@ -1,0 +1,74 @@
+@import "tailwindcss";
+
+@layer base {
+  body {
+    background-color: #13131a;
+    background-image: radial-gradient(#34343d 0.75px, transparent 0.75px);
+    background-size: 10px 10px;
+    font-family: 'Inter', sans-serif;
+    color: #e4e1ec;
+  }
+
+  .font-headline {
+    font-family: 'Sora', sans-serif;
+  }
+
+  .font-code {
+    font-family: 'JetBrains Mono', monospace;
+  }
+
+  .font-body {
+    font-family: 'Inter', sans-serif;
+  }
+
+  .pb-safe {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  
+  .pt-safe {
+    padding-top: env(safe-area-inset-top, 0px);
+  }
+}
+
+/* Custom Scrollbar for HUD panels */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #0d0e15;
+}
+::-webkit-scrollbar-thumb {
+  background: #34343d;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #00dce6;
+}
+
+@keyframes scanning {
+  0% { transform: translateX(-100%); }
+  50% { transform: translateX(350%); }
+  100% { transform: translateX(-100%); }
+}
+
+.animate-scanning {
+  animation: scanning 3s ease-in-out infinite;
+}
+
+@keyframes pulseGlow {
+  0%, 100% { box-shadow: 0 0 10px rgba(0, 220, 230, 0.4); }
+  50% { box-shadow: 0 0 20px rgba(0, 220, 230, 0.8); }
+}
+
+.glow-cyan {
+  box-shadow: 0 0 12px rgba(0, 220, 230, 0.35);
+}
+
+.glow-cyan-lg {
+  box-shadow: 0 0 20px rgba(0, 242, 254, 0.5);
+}
+
+.glow-gold {
+  box-shadow: 0 0 12px rgba(233, 196, 0, 0.35);
+}

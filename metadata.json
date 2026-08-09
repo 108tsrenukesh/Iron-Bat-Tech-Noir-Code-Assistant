@@ -1,0 +1,8 @@
+{
+  "name": "Iron Bat - Tech-Noir Code Assistant",
+  "description": "Cybernetic AI code assistant and diagnostic platform with real-time code trace analysis, interactive syntax debugging, and repository command center.",
+  "requestFramePermissions": [
+    "microphone"
+  ],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
