@@ -238,7 +238,6 @@ async function startServer() {
             `› Verified payload schema & async promise pipeline.\n\n` +
             `*Offline demo mode — no GEMINI_API_KEY configured.*`,
           status: "ANALYSIS COMPLETE",
-          suggestions: ["Review Error Handling", "Trace Sequence"],
           isFallback: true,
         });
       }
@@ -297,7 +296,6 @@ async function startServer() {
         return res.json({
           reply: "DIAGNOSTIC DENIED: Repository too large for single analysis. Try asking about specific files or a narrower question.",
           status: "CONTEXT OVERFLOW",
-          suggestions: ["Ask about specific files", "Narrow the question"],
           isFallback: true,
         });
       }
@@ -305,33 +303,30 @@ async function startServer() {
       fullPrompt += `[USER QUERY]: ${message}`;
 
       const response = await ai.models.generateContent({
-        model: "gemini-3.6-flash",
+        model: "gemini-2.0-flash",
         contents: fullPrompt,
-        config: {
-          systemInstruction,
-          temperature: 0.4,
-          safetySettings: [
-            { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
-            { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_ONLY_HIGH" },
-            { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
-            { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" },
-          ],
-        },
+        config: { systemInstruction, temperature: 0.4 },
       });
 
-      const replyText = response.text || "Diagnostic scan complete. No structural errors detected.";
+      const replyText = response.text?.trim() || "Analysis complete. Try asking about the repo structure, security features, or specific files.";
 
       return res.json({
         reply: replyText,
         status: "ANALYSIS COMPLETE",
-        suggestions: ["Review Error Handling", "Analyze Code Security", "Explain Architecture"],
         isFallback: false,
       });
     } catch (err: any) {
-      console.error("Gemini API Error:", err?.message);
-      return res.status(500).json({
-        error: "AI analysis failed. Please try again.",
-        message: err?.message?.includes("quota") ? "API quota exceeded." : undefined,
+      console.error("Gemini API Error:", err?.message, err?.stack);
+      const isQuota = err?.message?.includes("quota") || err?.message?.includes("429");
+      const isSafety = err?.message?.includes("safety") || err?.message?.includes("blocked");
+      return res.json({
+        reply: isQuota
+          ? "API quota exceeded. Please try again later."
+          : isSafety
+            ? "Response blocked by content filters. Try rephrasing your question about the code."
+            : "AI analysis encountered an error. Try rephrasing your question.",
+        status: "ERROR",
+        isFallback: true,
       });
     }
   });

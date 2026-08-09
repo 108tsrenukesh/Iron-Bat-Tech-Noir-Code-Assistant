@@ -172,7 +172,7 @@ export default function App() {
       });
 
       const data = await response.json();
-      let replyText = data.reply || 'Scan completed.';
+      let replyText = data.reply || 'Analysis complete. Try asking a specific code question.';
       let bullets: string[] = data.bullets || [];
 
       if (replyText.includes('›')) {
@@ -187,7 +187,6 @@ export default function App() {
         text: replyText,
         statusLabel: data.status || 'ANALYSIS COMPLETE',
         bullets: bullets.length > 0 ? bullets : undefined,
-        snippetAction: text.toLowerCase().includes('trace') ? 'View Trace Sequence' : 'Check Security Vulnerabilities',
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       }]);
     } catch {

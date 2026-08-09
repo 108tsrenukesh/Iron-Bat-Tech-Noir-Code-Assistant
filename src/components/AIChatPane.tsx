@@ -131,8 +131,8 @@ export const AIChatPane: React.FC<AIChatPaneProps> = ({
       {/* Suggestion Chips */}
       <div className="px-4 py-1.5 flex gap-2 overflow-x-auto bg-[#08080C] border-t border-[#1A1A22] no-scrollbar">
         {(isRepoMode
-          ? ['What is this repo about?', 'What security features?', 'How is the code structured?', 'Find all API endpoints', 'Check for vulnerabilities']
-          : ['Explain authenticateUser', 'Review Error Handling', 'Trace Sequence', 'Check Security Vulnerabilities']
+          ? ['What is this repo about?', 'What security features?', 'How is the code structured?', 'Find all API endpoints']
+          : ['Explain authenticateUser', 'Review Error Handling', 'Trace Sequence']
         ).map((chip, idx) => (
           <button
             key={idx}
