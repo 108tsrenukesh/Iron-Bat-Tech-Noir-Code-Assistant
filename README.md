@@ -1,194 +1,277 @@
 # 🦇 Iron Bat — Tech-Noir Code Assistant
 
-A cyberpunk-styled, AI-powered code analysis and diagnostic platform built with the **Gemini API**. Iron Bat reads your active code file, answers questions about it in a gritty "tech-noir" diagnostic voice, traces execution call-chains across your codebase, and lets you explore repositories like a command-center console.
-
-Built entirely inside **Google AI Studio** (Build mode) with the **Antigravity agent**, designed as a **mobile-first web app** — deployable to any Node hosting, no Google Cloud billing required.
+> *"Every hero has an origin story. This is mine — where a childhood obsession with Batman's dark, methodical genius met Iron Man's relentless, bleeding-edge innovation. Iron Bat is what happens when those two worlds collide in code."*
 
 ---
 
-## 🧠 What It Does
+## The Origin Story
 
-| Feature | Description |
+Growing up, I lived in two worlds. In one, Batman patrolled Gotham's rain-slicked rooftops — silent, analytical, seeing patterns no one else could. In the other, Tony Stark built impossible machines in his workshop — bold, relentless, turning raw intelligence into living technology.
+
+I always wondered: *what if Batman had Iron Man's tools?*
+
+Not a suit of armor. Not a cave. Something sharper. A **mind** that could dive into any codebase and see what others miss — every vulnerability, every hidden dependency, every call chain hidden in the noise. A diagnostic engine that speaks in cold, precise bullets and never misses a detail.
+
+Iron Bat is that engine. A tech-noir code assistant that fuses **Batman's forensic precision** with **Iron Man's AI-powered intelligence**. You point it at a codebase. It dissects it. And it tells you exactly what's going on — no fluff, no filler, just analysis.
+
+---
+
+## What It Does
+
+Iron Bat connects to any **public GitHub repository**, fetches the file tree, loads key files into context, and lets you **ask questions about the entire codebase** using Google's Gemini AI.
+
+```
+┌─────────────────────────────────────────────────────┐
+│  🦇  Connect any GitHub repo                       │
+│      ↓                                              │
+│  🔍  File tree fetched, noise filtered, key files   │
+│      loaded (README, source, config)                │
+│      ↓                                              │
+│  💬  Ask: "What is this repo about?"                │
+│      Ask: "What security features exist?"           │
+│      Ask: "How is the code structured?"             │
+│      Ask: "Find all API endpoints"                  │
+│      Ask: "Check for vulnerabilities"               │
+│      ↓                                              │
+│  🧠  Gemini analyzes code + context → answers       │
+│      with file citations and diagnostic tone        │
+└─────────────────────────────────────────────────────┘
+```
+
+### Core Capabilities
+
+| Feature | What It Does |
 |---|---|
-| 💬 **AI Code Chat** | Ask questions about the file you're viewing (`Explain authenticateUser`) — Gemini answers with bullet-point diagnostics in character. |
-| 🕵️ **Execution Tracing** | Ask for a **Trace Sequence** and Iron Bat generates a 3-step cross-file call-chain (file, line range, highlighted code, explanation). |
-| 📄 **Code Viewer** | Interactive, syntax-coloured file browser with click-a-line-to-ask (tap a line → "Explain line 12: ..."). |
-| 📂 **Repo Command Center** | Browse a multi-file mock codebase (auth, API client, config, UI), search files, jump instantly between views. |
-| 🎙️ **Voice Input** | Tap the mic for a voice-prompted analysis (microphone permission requested). |
-| 🎨 **Tech-Noir UI** | Dark, glowing-neon interface (`#00F2FE` cyan accents), draggable code/chat split-pane, animated transitions. |
-| ⚠️ **Graceful Fallback** | If no `GEMINI_API_KEY` is configured, the server answers from a smart offline diagnostic engine — the demo never breaks. |
+| **GitHub Repo Connect** | Paste any `owner/repo` URL → fetches file tree via GitHub API, filters noise (node_modules, lockfiles, binaries), loads README + key source files |
+| **Multi-File AI Chat** | Ask questions about the *entire* codebase — Gemini receives the file tree + file contents and answers with file-level citations |
+| **Security Analysis** | Ask "What security features does this have?" or "Check for vulnerabilities" → Gemini scans the loaded code for auth patterns, injection risks, and security practices |
+| **Architecture Explanation** | "How is the code structured?" → Gemini reads the file tree + key files and explains the architecture, dependencies, and patterns |
+| **API Endpoint Discovery** | "Find all API endpoints" → scans route files, controllers, and middleware for endpoint definitions |
+| **Execution Tracing** | Generate 3-step cross-file call chains showing how a function flows through the codebase |
+| **Graceful Fallback** | No API key? The app still works in demo mode with smart offline responses — the interface never breaks |
 
 ---
 
-## 🏗️ Tech Stack
+## How It Works
+
+### The Two-Step Agentic Flow
+
+Iron Bat uses a **two-step retrieval pattern** — no vector database, no embeddings, just smart context management:
+
+```
+Step 1: "Read the map"
+───────────────────────
+  User question + full file tree (300 files max)
+  → Gemini picks the 5-15 most relevant files
+
+Step 2: "Open the book"
+───────────────────────
+  User question + file contents + tree context
+  → Gemini generates the analysis with file citations
+```
+
+This costs only **2 Gemini API calls per question** — free tier friendly.
+
+### System Architecture
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│                    Iron Bat UI (React SPA)                    │
+│              Connect Repo → Chat → Get Analysis               │
+└───────────────────────────┬──────────────────────────────────┘
+                            │
+              ┌─────────────┼─────────────┐
+              │             │             │
+         GET /api/repo  POST /api/chat  GET /api/file
+              │             │             │
+              ▼             ▼             ▼
+┌──────────────────────────────────────────────────────────────┐
+│              Express Server (server.ts)                       │
+│  ┌─────────────────┐  ┌──────────────┐  ┌────────────────┐  │
+│  │  GitHub API      │  │  Gemini SDK  │  │  Rate Limiter  │  │
+│  │  Fetch tree +    │  │  Flash model │  │  60/min general│  │
+│  │  file contents   │  │  2-step      │  │  20/min chat   │  │
+│  └─────────────────┘  │  retrieval   │  └────────────────┘  │
+│                        └──────────────┘                      │
+└──────────────────────────────────────────────────────────────┘
+              │             │             │
+              ▼             ▼             ▼
+     GitHub API      Gemini API     Raw Files
+     (file tree)     (analysis)     (contents)
+```
+
+### Security Hardening
+
+| Protection | Implementation |
+|---|---|
+| **Rate Limiting** | `express-rate-limit`: 60 req/min general, 20/min chat, 10/min repo connect |
+| **Input Validation** | GitHub inputs sanitized, message length capped at 2000 chars, filepath path traversal blocked |
+| **Fetch Timeouts** | All external API calls have 10s `AbortController` timeout |
+| **Body Size Limit** | Express JSON body capped at 512KB to prevent OOM |
+| **Context Overflow Protection** | Total prompt capped at 120K chars (~30K tokens) with graceful "CONTEXT OVERFLOW" response |
+| **Error Sanitization** | Internal errors never leak to users — safe, generic messages only |
+
+---
+
+## Tech Stack
 
 | Layer | Technology |
 |---|---|
-| Frontend | React 19, Vite 6, Tailwind CSS v4, Motion (Framer Motion), Lucide icons |
-| Backend | Node.js + Express 4, TypeScript (esbuild bundle → single `server.cjs`) |
-| AI | Google Gemini via `@google/genai` SDK (model: `gemini-3.6-flash`), JSON response mode for traces |
-| Build | Vite (client) + esbuild (server) — one-command `npm run build` |
+| **Frontend** | React 19, Vite 6, Tailwind CSS v4, Motion (Framer Motion) |
+| **Backend** | Node.js + Express 4, TypeScript (esbuild → single `server.cjs`) |
+| **AI Engine** | Google Gemini 3.6 Flash via `@google/genai` SDK |
+| **External APIs** | GitHub REST API (file trees), raw.githubusercontent.com (file contents) |
+| **Security** | `express-rate-limit`, input sanitization, fetch timeouts, body size limits |
+| **Build** | Vite (client) + esbuild (server) — `npm run build` bundles everything |
+| **Deployment** | Render free tier (Blueprint + GitHub Actions auto-deploy) |
 
 ---
 
-## 🔁 System Flow Diagram
+## Quick Start
 
-```mermaid
-flowchart TD
-    U[User in mobile browser] -->|tap line / type question| F[React UI - Iron Bat Console]
-    F -->|POST /api/chat| S[Express Server]
-    F -->|POST /api/trace| S
-    F -->|GET /api/health| S
+### Try It Live
 
-    subgraph S [Node + Express Backend]
-        C{Has GEMINI_API_KEY?}
-        C -- No --> D[Offline Diagnostic Engine - fallback replies]
-        C -- Yes --> G[Gemini SDK - google-genai]
-    end
+**→ [iron-bat-code-assistant.onrender.com](https://iron-bat-code-assistant.onrender.com)**
 
-    G -->|gemini-3.6-flash + file context + history| M[(Gemini API - Free tier)]
-    M -->|bullet diagnostics, JSON traces| G
-    D --> R[reply + status + suggestions]
-    G --> R
-    R --> F
-    F -->|Render bullets, trace cards, citations| U
+1. Open the app → lands on the **REPOS** tab
+2. Click **Connect Your GitHub Arsenal**
+3. Paste any public repo URL (e.g., `facebook/react`, `vercel/next.js`)
+4. Wait ~5 seconds for the file tree to load
+5. Switch to the **AI** tab
+6. Ask: *"What is this repo about?"* or *"What security features does this have?"*
 
-    style G fill:#0b3d5c,stroke:#00F2FE
-    style D fill:#3d2b0b,stroke:#f2c800
-    style M fill:#1c1c26,stroke:#3A3A44
-```
-
-```
-                                ┌──────────────────────────┐
-                                │      Iron Bat UI (SPA)   │
-                                │  React + Tailwind + Motion│
-                                └────────────┬─────────────┘
-                          /api/chat           │           /api/trace
-                                 ▼            ▼                 ▼
-                       ┌────────────────────────────────────────────┐
-                       │        Express Server  (server.ts)          │
-                       │    /api/health → status check               │
-                       │    /api/chat   → question + file context    │
-                       │    /api/trace  → call-chain JSON            │
-                       └──────┬──────────────────────────┬──────────┘
-                              │ has API key?             │ no API key?
-                              ▼                          ▼
-                     ┌─────────────────┐         ┌──────────────────┐
-                     │  Gemini Flash   │         │ Offline Fallback │
-                     │  (@google/genai)│         │ Engine (demo)     │
-                     └─────────────────┘         └──────────────────┘
-```
-
-**Flow, step by step:**
-1. The user opens the console and selects a code file (e.g. `Auth.js`).
-2. They tap a line or type a question — the UI sends the **active file content + last 4 messages** to `/api/chat`.
-3. The server wraps it in an "Iron Bat" system persona and calls `gemini-3.6-flash` (temperature 0.4).
-4. Gemini returns diagnostics; the UI splits `›`-styled bullets into an animated response card with suggestions.
-5. For `/api/trace`, Gemini returns **strict JSON** (`{ steps: [{file, lines, code, highlight}], explanation }`) rendered as a timeline sequence.
-
----
-
-## 🚀 Deployment (Free — No Google Billing Needed)
-
-This app is a standard Node app. Deploy it free on **Render** and connect it to your GitHub repo — deploys automatically on every push, and the Gemini key lives in **GitHub Secrets** via a GitHub Actions workflow.
-
-### 1. One-time: create your secrets on GitHub
-Repo → **Settings → Secrets and variables → Actions → New repository secret**:
-
-| Secret | Value |
-|---|---|
-| `GEMINI_API_KEY` | Your Gemini API key from [aistudio.google.com](https://aistudio.google.com) |
-| `RENDER_API_KEY` | `render.com → Account Settings → API Keys` |
-| `RENDER_DEPLOY_HOOK_URL` | `render.com → your service → Settings → Deploy Hook` (copy URL) |
-| `RENDER_SERVICE_ID` | Your Render service ID (the `srv-...` string from the service URL) |
-
-### 2. Create your free service on Render
-1. Go to [render.com](https://render.com) → **New → Blueprint** → connect your GitHub repo.
-2. Render reads `render.yaml` and creates the app automatically.
-3. Set `GEMINI_API_KEY` in the service's **Environment** tab (or let the workflow push it).
-
-### 3. Deploy
-- Easiest: **Manual Deploy → Deploy branch** in Render (first deploy), then every `git push` triggers the **GitHub Actions workflow** (`.github/workflows/deploy.yml`) which syncs the API key from GitHub Secrets and hits the Deploy Hook. Zero manual steps after setup.
-
-> No API key? The app still runs in **demo mode** with the offline diagnostic fallback — every screen works.
-
----
-
-## 🖥️ Run Locally
+### Run Locally
 
 ```bash
-# 1. Install deps
+# Clone the repo
+git clone https://github.com/108tsrenukesh/Iron-Bat-Tech-Noir-Code-Assistant.git
+cd Iron-Bat-Tech-Noir-Code-Assistant
+
+# Install dependencies
 npm install
 
-# 2. Add your API key
-cp .env.example .env    # then set GEMINI_API_KEY="your-key"
+# Add your Gemini API key
+cp .env.example .env
+# Edit .env and set GEMINI_API_KEY="your-key"
 
-# 3. Dev server (hot reload, Vite middleware)
-npm run dev             # → http://localhost:3000
+# Start dev server (hot reload)
+npm run dev
+# → http://localhost:3000
 
-# 4. Production build + serve
+# Production build + serve
 npm run build && npm start
-
-# 5. Lint
-npm run lint
 ```
+
+> No API key? The app still works in demo mode with smart fallback responses.
 
 ---
 
-## 🔌 API Endpoints
+## API Endpoints
 
-| Method | Path | Request Body | Returns |
+| Method | Path | Purpose | Rate Limit |
 |---|---|---|---|
-| `GET` | `/api/health` | — | `{ status, hasGeminiKey, timestamp }` |
-| `POST` | `/api/chat` | `{ message, fileContext: { name, content }, history: [{role, text}] }` | `{ reply, status, suggestions, isFallback }` |
-| `POST` | `/api/trace` | `{ functionName, codeSnippet }` | `{ steps: [{file, lines, code, highlight}], explanation }` |
+| `GET` | `/api/health` | Check server status + API key presence | 60/min |
+| `GET` | `/api/repo?url=owner/repo` | Fetch GitHub file tree, filter noise, load README | 10/min |
+| `GET` | `/api/file?owner=...&repo=...&filepath=...` | Fetch raw file content from GitHub | 10/min |
+| `POST` | `/api/chat` | Ask questions about code (single-file or multi-file repo mode) | 20/min |
+| `POST` | `/api/trace` | Generate 3-step execution call chains | 20/min |
 
 ---
 
-## 📁 Project Structure
+## Project Structure
 
 ```
-├── server.ts                 # Express server: Gemini client, /api/chat, /api/trace
-├── vite.config.ts            # Vite + React + Tailwind
-├── package.json              # build: vite build && esbuild server
-├── .env.example              # GEMINI_API_KEY / APP_URL template
-├── render.yaml               # Render Blueprint (free tier, auto-deploy)
-├── .github/workflows/        # GitHub Actions: secret sync + deploy hook
+├── server.ts                  # Express: GitHub API, Gemini client, rate limiting
+├── render.yaml                # Render Blueprint (free tier, auto-deploy)
+├── .github/workflows/
+│   └── deploy.yml             # GitHub Actions: secret sync + deploy hook
+├── .env.example               # GEMINI_API_KEY / APP_URL template
+├── vite.config.ts             # Vite + React + Tailwind
+├── package.json               # build: vite build && esbuild server
 └── src/
-    ├── App.tsx               # Console shell, pane split, tab routing
-    ├── data/mockCodebase.ts  # Built-in demo codebase (auth, api, config...)
-    ├── types.ts
+    ├── App.tsx                # Main shell: tab routing, repo state, chat handler
+    ├── types.ts               # TypeScript interfaces (RepoMeta, ChatMessage, etc.)
+    ├── data/
+    │   └── mockCodebase.ts    # Built-in demo codebase (fallback when no repo connected)
     └── components/
-        ├── AIChatPane.tsx        # Streaming chat + mic input
-        ├── CodeViewer.tsx        # Syntax-highlighted file viewer
-        ├── TraceSequenceView.tsx # Call-chain timeline
-        ├── ReposView.tsx         # Repo command center
-        ├── ConfigView.tsx        # Settings
-        ├── SearchModal.tsx       # File search
-        ├── Header.tsx / Navigation.tsx
+        ├── AIChatPane.tsx     # Chat UI: messages, suggestions, input bar
+        ├── ReposView.tsx      # Repo connect: URL input, connected list, disconnect
+        ├── CodeViewer.tsx     # Syntax-highlighted file viewer (demo mode)
+        ├── TraceSequenceView  # Call-chain timeline
+        ├── ConfigView.tsx     # Settings, API key status, health check
+        ├── SearchModal.tsx    # File search (Ctrl+K)
+        ├── Header.tsx         # Top bar with logo, breadcrumbs, search
+        └── Navigation.tsx     # Bottom tab bar (REPOS / AI / CONFIG)
 ```
 
 ---
 
-## 🎓 What This Teaches (Build-with-AI / Bootcamp Notes)
+## The Build-with-AI Journey
 
-- **Agentic build flow**: designed in **Google Stitch** → implemented by the **Antigravity agent** in **AI Studio Build** → deployed to Cloud Run → re-hosted on free infrastructure (this repo).
-- **Prompt architecture**: system persona + file context + conversation history → stable, character-consistent outputs.
-- **Structured outputs**: `/api/trace` forces `responseMimeType: application/json` — deterministic data the UI can render.
-- **Server-side key management**: the Gemini key never ships to the browser; the Express server proxies all AI calls.
-- **Fallback design**: the app degrades gracefully without an API key — great for demos and CI.
+This project was built entirely inside **Google AI Studio** during the **Build with AI Bootcamp**:
+
+1. **Google Stitch** → designed the tech-noir UI (dark theme, cyan neon accents, glassmorphism)
+2. **Antigravity Agent** → scaffolded the full-stack app from natural language prompts
+3. **AI Studio Build** → generated React + Express + Gemini integration in one pass
+4. **GitHub** → exported code, iterated on features, added real GitHub integration
+5. **Render** → deployed free via Blueprint + GitHub Actions
+
+### What I Learned
+
+| Concept | How It's Used |
+|---|---|
+| **Agentic Build Flow** | Stitch → Antigravity → AI Studio → GitHub → Render — the full pipeline |
+| **Prompt Architecture** | System persona + file context + conversation history → stable, character-consistent outputs |
+| **Structured JSON Outputs** | `/api/trace` forces `responseMimeType: "application/json"` for deterministic data |
+| **Two-Step Retrieval** | File tree → Gemini selects relevant files → fetch contents → Gemini answers |
+| **Server-Side Key Management** | Gemini API key never leaves the server — Express proxies all AI calls |
+| **Graceful Degradation** | App works without API key (demo mode) — great for demos and CI |
+| **Rate Limiting** | `express-rate-limit` with tiered limits per endpoint type |
+| **Input Sanitization** | GitHub inputs validated, paths sanitized, message lengths capped |
 
 ---
 
-## 🛠️ Troubleshooting
+## Deployment (Free — No Google Billing)
+
+### Option 1: Render Blueprint (Recommended)
+
+1. Go to [render.com](https://render.com) → **New → Blueprint** → connect your GitHub repo
+2. Render reads `render.yaml` and creates the service automatically
+3. Set `GEMINI_API_KEY` in the service's **Environment** tab
+4. Deploy → your app is live at `https://your-app.onrender.com`
+
+### Option 2: GitHub Actions Auto-Deploy
+
+Add these secrets to your repo (**Settings → Secrets → Actions**):
+
+| Secret | Where to Get It |
+|---|---|
+| `GEMINI_API_KEY` | [aistudio.google.com](https://aistudio.google.com) → API Keys |
+| `RENDER_API_KEY` | render.com → Account Settings → API Keys |
+| `RENDER_DEPLOY_HOOK_URL` | Render service → Settings → Deploy Hook |
+| `RENDER_SERVICE_ID` | Render service URL: `https://dashboard.render.com/web/srv-XXXX` |
+
+Every `git push` → GitHub Actions syncs the API key → triggers Render deploy → live in ~2 min.
+
+---
+
+## Troubleshooting
 
 | Problem | Fix |
 |---|---|
-| Render shows `NODE_ENV` issues | `render.yaml` sets `NODE_ENV=production` automatically |
-| Blank screen in production | Confirm `/api/health` returns `status: ok` — SPA fallback sends `index.html` on all routes |
-| "AI Diagnostic Scan Failure" | Check `GEMINI_API_KEY` in Render env (or GitHub Secret sync) and that you're on the free Gemini tier |
-| Changes not auto-deploying | Verify the `push` workflow ran in **Actions** tab and the Deploy Hook URL secret is correct |
+| "DIAGNOSTIC DENIED" on valid code questions | Guardrails were too aggressive — update was pushed to relax them (commit `7f4b3ae`) |
+| Blank screen in production | Check `/api/health` returns `status: ok` — SPA fallback serves `index.html` on all routes |
+| "AI Diagnostic Scan Failure" | Verify `GEMINI_API_KEY` is set in Render → Environment tab |
+| Render build fails with "vite not found" | Ensure `render.yaml` has `buildCommand: npm install && npm run build` |
+| Repo connects but chat doesn't answer | Check Gemini API quota — free tier has daily limits |
+| Changes not auto-deploying | Verify GitHub Actions workflow ran (Actions tab) and Deploy Hook URL is correct |
 
 ---
 
-Built with 🦇 by [@108tsrenukesh](https://github.com/108tsrenukesh) — Google Build with AI Bootcamp project.
+## License
+
+Apache-2.0
+
+---
+
+*Built with 🦇 by [@108tsrenukesh](https://github.com/108tsrenukesh) — a childhood dream of Batman's precision meets Iron Man's intelligence, powered by Google AI.*
