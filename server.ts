@@ -3,10 +3,41 @@ import path from "path";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI } from "@google/genai";
 import dotenv from "dotenv";
+import rateLimit from "express-rate-limit";
 
 dotenv.config();
 
-// Noise patterns to filter out of GitHub tree listings
+// ── Constants ──────────────────────────────────────────────────────
+const FETCH_TIMEOUT_MS = 10_000;
+const MAX_GEMINI_CONTENT_CHARS = 120_000; // ~30K tokens
+const MAX_FILE_TREE_SEND = 300;
+const MAX_README_CHARS = 6_000;
+const MAX_FILE_CONTENT_CHARS = 12_000;
+const MAX_HISTORY_MESSAGES = 6;
+const MAX_REQUEST_BODY_BYTES = 512_000; // 512KB
+
+// ── Rate limiters ──────────────────────────────────────────────────
+const generalLimiter = rateLimit({
+  windowMs: 60_000,
+  max: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Rate limit exceeded. Try again in 1 minute." },
+});
+
+const chatLimiter = rateLimit({
+  windowMs: 60_000,
+  max: 20,
+  message: { error: "Too many chat requests. Try again in 1 minute." },
+});
+
+const repoLimiter = rateLimit({
+  windowMs: 60_000,
+  max: 10,
+  message: { error: "Too many repo connections. Try again in 1 minute." },
+});
+
+// ── Noise filter ───────────────────────────────────────────────────
 const NOISE_PATTERNS = [
   "node_modules/", "package-lock.json", "yarn.lock", "pnpm-lock.yaml",
   ".git/", ".github/", ".vscode/", ".idea/", "dist/", "build/", "coverage/",
@@ -23,78 +54,93 @@ function isNoiseFile(filePath: string): boolean {
   );
 }
 
+// ── Input sanitizers ───────────────────────────────────────────────
+function sanitizeGithubInput(input: string): string {
+  return input.replace(/[^a-zA-Z0-9._\/\-]/g, "").slice(0, 200);
+}
+
 function parseRepoUrl(url: string): { owner: string; repo: string; branch: string } | null {
   const cleaned = url.replace(/\.git$/, "").replace(/\/+$/, "");
-  const match = cleaned.match(/github\.com\/([^/]+)\/([^/]+)/);
+  const match = cleaned.match(/github\.com\/([a-zA-Z0-9._-]+)\/([a-zA-Z0-9._-]+)/);
   if (match) {
     const [, owner, repo] = match;
-    const branchMatch = cleaned.match(/\/tree\/([^/]+)/);
+    const branchMatch = cleaned.match(/\/tree\/([a-zA-Z0-9._\/-]+)/);
     return { owner, repo, branch: branchMatch ? branchMatch[1] : "main" };
   }
-  // Try "owner/repo" format
   const parts = cleaned.split("/").filter(Boolean);
-  if (parts.length === 2) {
+  if (parts.length === 2 && /^[a-zA-Z0-9._-]+$/.test(parts[0]) && /^[a-zA-Z0-9._-]+$/.test(parts[1])) {
     return { owner: parts[0], repo: parts[1], branch: "main" };
   }
   return null;
+}
+
+// ── Fetch with timeout ─────────────────────────────────────────────
+async function fetchWithTimeout(url: string, opts: RequestInit = {}, timeoutMs = FETCH_TIMEOUT_MS): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...opts, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 async function startServer() {
   const app = express();
   const PORT = Number(process.env.PORT) || 3000;
 
-  app.use(express.json());
+  // Body parsing with size limit
+  app.use(express.json({ limit: MAX_REQUEST_BODY_BYTES }));
 
-  // Initialize Gemini client lazily
+  // Global rate limit
+  app.use(generalLimiter);
+
+  // Gemini client
   let aiClient: GoogleGenAI | null = null;
   function getGeminiClient(): GoogleGenAI | null {
     if (!aiClient) {
       const apiKey = process.env.GEMINI_API_KEY;
-      if (apiKey && apiKey !== "MY_GEMINI_API_KEY") {
+      if (apiKey && apiKey !== "MY_GEMINI_API_KEY" && apiKey.length > 10) {
         aiClient = new GoogleGenAI({
           apiKey,
-          httpOptions: { headers: { "User-Agent": "aistudio-build" } },
+          httpOptions: { headers: { "User-Agent": "IronBat/1.0" } },
         });
       }
     }
     return aiClient;
   }
 
-  // Health check
+  // ── Health ──
   app.get("/api/health", (_req, res) => {
     res.json({
       status: "ok",
-      hasGeminiKey: Boolean(process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY !== "MY_GEMINI_API_KEY"),
+      hasGeminiKey: Boolean(getGeminiClient()),
       timestamp: new Date().toISOString(),
     });
   });
 
-  // ── Fetch GitHub repo file tree ──────────────────────────────────
-  app.get("/api/repo", async (req, res) => {
+  // ── Fetch GitHub repo tree ─────────────────────────────────────
+  app.get("/api/repo", repoLimiter, async (req, res) => {
     try {
       const { url } = req.query;
-      if (!url || typeof url !== "string") {
-        return res.status(400).json({ error: "url query param required" });
+      if (!url || typeof url !== "string" || url.length > 500) {
+        return res.status(400).json({ error: "Invalid or missing url parameter." });
       }
       const parsed = parseRepoUrl(url);
       if (!parsed) {
-        return res.status(400).json({ error: "Invalid GitHub URL. Use format: owner/repo or https://github.com/owner/repo" });
+        return res.status(400).json({ error: "Invalid GitHub URL. Use: owner/repo or https://github.com/owner/repo" });
       }
 
       const { owner, repo, branch } = parsed;
-      const apiUrl = `https://api.github.com/repos/${owner}/${repo}/git/trees/${branch}?recursive=1`;
+      const apiUrl = `https://api.github.com/repos/${owner}/${repo}/git/trees/${encodeURIComponent(branch)}?recursive=1`;
 
-      const treeRes = await fetch(apiUrl, {
-        headers: {
-          Accept: "application/vnd.github.v3+json",
-          "User-Agent": "IronBat-CodeAssistant/1.0",
-        },
+      const treeRes = await fetchWithTimeout(apiUrl, {
+        headers: { Accept: "application/vnd.github.v3+json", "User-Agent": "IronBat/1.0" },
       });
 
       if (!treeRes.ok) {
-        const errBody = await treeRes.text();
-        return res.status(treeRes.status).json({
-          error: `GitHub API error (${treeRes.status}): ${errBody.slice(0, 200)}`,
+        return res.status(treeRes.status >= 500 ? 502 : treeRes.status).json({
+          error: treeRes.status === 404 ? "Repository not found or is private." : `GitHub API error (${treeRes.status})`,
         });
       }
 
@@ -107,16 +153,15 @@ async function startServer() {
           ext: path.extname(item.path).toLowerCase(),
         }));
 
-      // Fetch README.md if it exists
+      // Fetch README
       let readme = "";
       const readmeFile = files.find((f: any) => /^readme\.md$/i.test(f.path));
       if (readmeFile) {
         try {
           const rawUrl = `https://raw.githubusercontent.com/${owner}/${repo}/${branch}/${readmeFile.path}`;
-          const readmeRes = await fetch(rawUrl, { headers: { "User-Agent": "IronBat/1.0" } });
+          const readmeRes = await fetchWithTimeout(rawUrl, { headers: { "User-Agent": "IronBat/1.0" } });
           if (readmeRes.ok) {
-            const text = await readmeRes.text();
-            readme = text.slice(0, 8000); // cap at 8KB
+            readme = (await readmeRes.text()).slice(0, MAX_README_CHARS);
           }
         } catch { /* skip */ }
       }
@@ -131,89 +176,123 @@ async function startServer() {
         readme,
       });
     } catch (err: any) {
-      console.error("Repo fetch error:", err);
-      res.status(500).json({ error: "Failed to fetch repository: " + (err.message || "unknown") });
+      console.error("Repo fetch error:", err?.message);
+      res.status(500).json({ error: "Failed to connect to repository." });
     }
   });
 
-  // ── Fetch file content from raw.githubusercontent.com ────────────
-  app.get("/api/file", async (req, res) => {
+  // ── Fetch file content ─────────────────────────────────────────
+  app.get("/api/file", repoLimiter, async (req, res) => {
     try {
       const { owner, repo, branch, filepath } = req.query;
       if (!owner || !repo || !filepath) {
-        return res.status(400).json({ error: "owner, repo, filepath query params required" });
+        return res.status(400).json({ error: "Missing required parameters." });
       }
-      const rawUrl = `https://raw.githubusercontent.com/${owner}/${repo}/${branch || "main"}/${filepath}`;
-      const fileRes = await fetch(rawUrl, { headers: { "User-Agent": "IronBat/1.0" } });
+      // Validate inputs are safe GitHub identifiers
+      const safeOwner = sanitizeGithubInput(String(owner));
+      const safeRepo = sanitizeGithubInput(String(repo));
+      const safeBranch = sanitizeGithubInput(String(branch || "main"));
+      const safePath = String(filepath).replace(/[^a-zA-Z0-9._\/\-]/g, "").slice(0, 300);
+
+      if (!safeOwner || !safeRepo || !safePath) {
+        return res.status(400).json({ error: "Invalid parameters." });
+      }
+
+      const rawUrl = `https://raw.githubusercontent.com/${safeOwner}/${safeRepo}/${safeBranch}/${safePath}`;
+      const fileRes = await fetchWithTimeout(rawUrl, { headers: { "User-Agent": "IronBat/1.0" } });
       if (!fileRes.ok) {
-        return res.status(fileRes.status).json({ error: "File not found or inaccessible" });
+        return res.status(404).json({ error: "File not found." });
       }
       const content = await fileRes.text();
-      res.json({ content, path: filepath, truncated: content.length > 32000 });
-    } catch (err: any) {
-      res.status(500).json({ error: "Failed to fetch file" });
+      res.json({
+        content: content.slice(0, MAX_FILE_CONTENT_CHARS),
+        path: safePath,
+        truncated: content.length > MAX_FILE_CONTENT_CHARS,
+      });
+    } catch {
+      res.status(500).json({ error: "Failed to fetch file." });
     }
   });
 
-  // ── AI Code Chat (supports both single-file and multi-file repo mode) ──
-  app.post("/api/chat", async (req, res) => {
+  // ── AI Chat ────────────────────────────────────────────────────
+  app.post("/api/chat", chatLimiter, async (req, res) => {
     try {
-      const { message, fileContext, history, repoFiles, repoMeta } = req.body;
+      const { message, fileContext, history, repoFiles, repoMeta, fileContents } = req.body;
       const ai = getGeminiClient();
 
-      if (!message) {
-        return res.status(400).json({ error: "Message prompt is required." });
+      if (!message || typeof message !== "string" || message.length > 2000) {
+        return res.status(400).json({ error: "Invalid message (1-2000 chars required)." });
       }
 
       if (!ai) {
-        const fallbackText =
-          `Diagnostics complete for query "${message}".\n\n` +
-          `› Analyzed active source context: \`${fileContext?.name || "Auth.js"}\`.\n` +
-          `› Verified payload schema & async promise pipeline.\n` +
-          `› Identified key entry handler and token verification block.\n\n` +
-          `*Note: No GEMINI_API_KEY configured — using offline demo mode.*`;
         return res.json({
-          reply: fallbackText,
+          reply: `Diagnostics complete for query "${message.slice(0, 100)}".\n\n` +
+            `› Analyzed active source context: \`${fileContext?.name || "Auth.js"}\`.\n` +
+            `› Verified payload schema & async promise pipeline.\n\n` +
+            `*Offline demo mode — no GEMINI_API_KEY configured.*`,
           status: "ANALYSIS COMPLETE",
-          suggestions: ["Review Error Handling", "Trace Sequence", "Check Security Vulnerabilities"],
+          suggestions: ["Review Error Handling", "Trace Sequence"],
           isFallback: true,
         });
       }
 
-      // Build system prompt
-      let systemInstruction = `You are Iron Bat, a cybernetic AI Code Assistant. You ONLY answer questions about the code provided. You MUST refuse any off-topic questions (math, trivia, general chat). If off-topic, respond: "DIAGNOSTIC DENIED: Query outside code scope." Then suggest code-related actions. Use crisp diagnostic tone. Present observations as concise bullet points starting with '›'.`;
+      let systemInstruction = `You are Iron Bat, a cybernetic AI Code Assistant. You ONLY answer questions about the code provided. Refuse off-topic questions with "DIAGNOSTIC DENIED: Query outside code scope." Use crisp diagnostic tone with bullet points starting with '›'.`;
 
       let fullPrompt = "";
+      let totalChars = 0;
 
       // Multi-file repo mode
       if (repoFiles && Array.isArray(repoFiles) && repoFiles.length > 0) {
-        systemInstruction += `\n\nYou are analyzing a real GitHub repository. The user may ask about the repo's purpose, architecture, security, patterns, or any code question. Cite specific files in your answer using the format: filename (e.g., "auth.ts" not "src/auth.ts"). Always answer based ONLY on the code files provided below. If the answer isn't in the provided files, say so.`;
+        systemInstruction += `\n\nYou are analyzing a GitHub repository. Cite files by name. Answer based ONLY on provided code.`;
 
-        fullPrompt += `[REPOSITORY: ${repoMeta?.owner || ""}/${repoMeta?.repo || ""}]\n`;
-        fullPrompt += `[BRANCH: ${repoMeta?.branch || "main"}]\n`;
-        fullPrompt += `[FILTERED FILE TREE (${repoFiles.length} files)]\n`;
-        fullPrompt += repoFiles.map((f: any) => `  ${f.path} (${f.size || "?"} bytes)`).join("\n") + "\n\n";
+        const repoOwner = repoMeta?.owner || "";
+        const repoName = repoMeta?.repo || "";
+        fullPrompt += `[REPOSITORY: ${repoOwner}/${repoName}]\n[BRANCH: ${repoMeta?.branch || "main"}]\n`;
+
+        // Cap file tree
+        const treeToSend = repoFiles.slice(0, MAX_FILE_TREE_SEND);
+        fullPrompt += `[FILE TREE (${treeToSend.length} of ${repoFiles.length} files)]\n`;
+        const treeStr = treeToSend.map((f: any) => `  ${f.path}`).join("\n") + "\n\n";
+        fullPrompt += treeStr;
+        totalChars += treeStr.length;
 
         if (repoMeta?.readme) {
-          fullPrompt += `[README.md]\n\`\`\`markdown\n${repoMeta.readme}\n\`\`\`\n\n`;
+          const readmeStr = `[README.md]\n\`\`\`markdown\n${repoMeta.readme}\n\`\`\`\n\n`;
+          fullPrompt += readmeStr;
+          totalChars += readmeStr.length;
         }
 
-        // Include actual file contents if provided
-        if (req.body.fileContents) {
-          for (const [fp, content] of Object.entries(req.body.fileContents)) {
-            if (typeof content === "string") {
-              fullPrompt += `[FILE: ${fp}]\n\`\`\`\n${content.slice(0, 16000)}\n\`\`\`\n\n`;
+        // Include file contents with size cap
+        if (fileContents && typeof fileContents === "object") {
+          for (const [fp, content] of Object.entries(fileContents)) {
+            if (typeof content === "string" && totalChars < MAX_GEMINI_CONTENT_CHARS) {
+              const sliced = content.slice(0, MAX_FILE_CONTENT_CHARS);
+              const fileStr = `[FILE: ${fp}]\n\`\`\`\n${sliced}\n\`\`\`\n\n`;
+              fullPrompt += fileStr;
+              totalChars += fileStr.length;
             }
           }
         }
-      }
-      // Single-file mode (legacy)
-      else if (fileContext && fileContext.name) {
-        fullPrompt += `[ACTIVE CODE FILE: ${fileContext.name}]\n\`\`\`javascript\n${fileContext.content}\n\`\`\`\n\n`;
+      } else if (fileContext && fileContext.name) {
+        fullPrompt += `[ACTIVE CODE FILE: ${fileContext.name}]\n\`\`\`javascript\n${String(fileContext.content || "").slice(0, MAX_FILE_CONTENT_CHARS)}\n\`\`\`\n\n`;
       }
 
-      if (history && Array.isArray(history) && history.length > 0) {
-        fullPrompt += `[CONVERSATION HISTORY]\n` + history.map((h: any) => `${h.role}: ${h.text}`).join("\n") + "\n\n";
+      // History with cap
+      if (Array.isArray(history) && history.length > 0) {
+        const histSlice = history.slice(-MAX_HISTORY_MESSAGES);
+        const histStr = `[CONVERSATION HISTORY]\n` + histSlice.map((h: any) => `${h.role}: ${String(h.text || "").slice(0, 200)}`).join("\n") + "\n\n";
+        fullPrompt += histStr;
+        totalChars += histStr.length;
+      }
+
+      // Reject if over context limit
+      if (totalChars > MAX_GEMINI_CONTENT_CHARS) {
+        return res.json({
+          reply: "DIAGNOSTIC DENIED: Repository too large for single analysis. Try asking about specific files or a narrower question.",
+          status: "CONTEXT OVERFLOW",
+          suggestions: ["Ask about specific files", "Narrow the question"],
+          isFallback: true,
+        });
       }
 
       fullPrompt += `[USER QUERY]: ${message}`;
@@ -221,10 +300,7 @@ async function startServer() {
       const response = await ai.models.generateContent({
         model: "gemini-3.6-flash",
         contents: fullPrompt,
-        config: {
-          systemInstruction,
-          temperature: 0.4,
-        },
+        config: { systemInstruction, temperature: 0.4 },
       });
 
       const replyText = response.text || "Diagnostic scan complete. No structural errors detected.";
@@ -232,66 +308,59 @@ async function startServer() {
       return res.json({
         reply: replyText,
         status: "ANALYSIS COMPLETE",
-        suggestions: ["Review Error Handling", "Check Security Vulnerabilities", "Explain Architecture", "Trace Execution"],
+        suggestions: ["Review Error Handling", "Check Security Vulnerabilities", "Explain Architecture"],
         isFallback: false,
       });
     } catch (err: any) {
-      console.error("Gemini API Error:", err);
+      console.error("Gemini API Error:", err?.message);
       return res.status(500).json({
-        error: "AI Diagnostic Scan Failure",
-        message: err.message || "Failed to process code analysis query.",
+        error: "AI analysis failed. Please try again.",
+        message: err?.message?.includes("quota") ? "API quota exceeded." : undefined,
       });
     }
   });
 
-  // ── AI Trace Generation ──
-  app.post("/api/trace", async (req, res) => {
+  // ── Trace ──
+  app.post("/api/trace", chatLimiter, async (req, res) => {
     try {
       const { functionName } = req.body;
       const ai = getGeminiClient();
 
       if (ai) {
-        const prompt = `Generate a 3-step execution trace sequence for function '${functionName || "authenticateUser"}'.
-Return valid JSON format matching this schema:
-{
-  "steps": [
-    { "file": "App.js", "lines": "100-104", "code": "await AuthService.login(user);", "highlight": "login" },
-    { "file": "AuthService.js", "lines": "44-46", "code": "const token = await ApiClient.post('/auth');", "highlight": "post" },
-    { "file": "ApiClient.js", "lines": "209-211", "code": "return fetch(url, options);", "highlight": "fetch" }
-  ],
-  "explanation": "Brief 2-sentence diagnostic explanation of how the call flows."
-}`;
+        const safeFn = String(functionName || "authenticateUser").replace(/[^a-zA-Z0-9_]/g, "").slice(0, 100);
+        const prompt = `Generate a 3-step execution trace for function '${safeFn}'.
+Return valid JSON: { "steps": [{ "file": "string", "lines": "string", "code": "string", "highlight": "string" }], "explanation": "string" }`;
 
         const response = await ai.models.generateContent({
           model: "gemini-3.6-flash",
           contents: prompt,
           config: {
             responseMimeType: "application/json",
-            systemInstruction: "You are Iron Bat, a code analysis engine. You ONLY generate execution traces for code. Refuse any off-topic requests.",
+            systemInstruction: "You are a code analysis engine. Generate execution traces only.",
           },
         });
 
         if (response.text) {
-          const parsed = JSON.parse(response.text);
-          return res.json(parsed);
+          try {
+            return res.json(JSON.parse(response.text));
+          } catch { /* fall through to default */ }
         }
       }
 
       return res.json({
         steps: [
-          { file: "App.js", lines: "100-104", code: "try {\n  await AuthService.login(user);\n} catch (e) {", highlight: "AuthService.login" },
-          { file: "AuthService.js", lines: "44-46", code: "const token = await\n  ApiClient.post('/auth');\nreturn token;", highlight: "ApiClient.post" },
-          { file: "ApiClient.js", lines: "209-211", code: "const options = { method: 'POST' };\nreturn fetch(url, options);", highlight: "fetch" },
+          { file: "App.js", lines: "100-104", code: "await AuthService.login(user);", highlight: "AuthService.login" },
+          { file: "AuthService.js", lines: "44-46", code: "await ApiClient.post('/auth');", highlight: "ApiClient.post" },
+          { file: "ApiClient.js", lines: "209-211", code: "return fetch(url, opts);", highlight: "fetch" },
         ],
-        explanation: "The flow initiates when submitForm is triggered in App.js. It immediately calls the AuthService to authenticate the payload, which then relies on the base ApiClient to execute the actual network request.",
+        explanation: "Call flow: App → AuthService → ApiClient → fetch.",
       });
-    } catch (err: any) {
-      console.error("Trace Generation Error:", err);
-      res.status(500).json({ error: "Trace sequence generation failed" });
+    } catch {
+      res.status(500).json({ error: "Trace generation failed." });
     }
   });
 
-  // Vite dev / static prod
+  // ── Static / Vite ──
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({ server: { middlewareMode: true }, appType: "spa" });
     app.use(vite.middlewares);

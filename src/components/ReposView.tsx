@@ -4,12 +4,13 @@ import { ConnectedRepo } from '../types';
 interface ReposViewProps {
   onSelectRepoFile: (repoId: string, fileName: string) => void;
   onConnectRepo: (repoUrl: string) => Promise<any>;
+  onDisconnectRepo: (repoId: string) => void;
   connectedRepos: ConnectedRepo[];
+  isConnecting: boolean;
 }
 
-export const ReposView: React.FC<ReposViewProps> = ({ onSelectRepoFile, onConnectRepo, connectedRepos }) => {
+export const ReposView: React.FC<ReposViewProps> = ({ onSelectRepoFile, onConnectRepo, onDisconnectRepo, connectedRepos, isConnecting }) => {
   const [repoInput, setRepoInput] = useState('');
-  const [isConnecting, setIsConnecting] = useState(false);
   const [connectError, setConnectError] = useState('');
   const [showConnectModal, setShowConnectModal] = useState(false);
 
@@ -17,15 +18,12 @@ export const ReposView: React.FC<ReposViewProps> = ({ onSelectRepoFile, onConnec
     e.preventDefault();
     if (!repoInput.trim() || isConnecting) return;
     setConnectError('');
-    setIsConnecting(true);
     try {
       await onConnectRepo(repoInput.trim());
       setRepoInput('');
       setShowConnectModal(false);
     } catch (err: any) {
       setConnectError(err.message || 'Failed to connect');
-    } finally {
-      setIsConnecting(false);
     }
   };
 
@@ -63,11 +61,10 @@ export const ReposView: React.FC<ReposViewProps> = ({ onSelectRepoFile, onConnec
             {connectedRepos.map((repo) => (
               <div
                 key={repo.id}
-                onClick={() => onSelectRepoFile(repo.id, '')}
-                className="group relative flex flex-col p-4 md:p-5 gap-2 rounded-2xl bg-white/5 border border-white/10 hover:border-[#00F2FE] transition-all cursor-pointer backdrop-blur-md hover:shadow-[0_0_20px_rgba(0,242,254,0.15)]"
+                className="group relative flex flex-col p-4 md:p-5 gap-2 rounded-2xl bg-white/5 border border-white/10 hover:border-[#00F2FE] transition-all backdrop-blur-md hover:shadow-[0_0_20px_rgba(0,242,254,0.15)]"
               >
                 <div className="flex justify-between items-start w-full">
-                  <div className="flex flex-col">
+                  <div className="flex flex-col cursor-pointer flex-1" onClick={() => onSelectRepoFile(repo.id, '')}>
                     <span className="font-code text-sm md:text-base text-[#E0E0E0] font-bold group-hover:text-[#00F2FE] transition-colors">
                       {repo.repo}
                     </span>
@@ -75,9 +72,13 @@ export const ReposView: React.FC<ReposViewProps> = ({ onSelectRepoFile, onConnec
                       {repo.owner}/{repo.repo} @ {repo.branch}
                     </span>
                   </div>
-                  <span className="material-symbols-outlined text-[#00F2FE] text-xl group-hover:scale-110 transition-transform">
-                    link
-                  </span>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); onDisconnectRepo(repo.id); }}
+                    className="text-[#A0A0A0] hover:text-red-400 transition-colors p-1"
+                    title="Disconnect repository"
+                  >
+                    <span className="material-symbols-outlined text-sm">link_off</span>
+                  </button>
                 </div>
                 <div className="flex items-center gap-2 mt-2 flex-wrap">
                   <span className="font-code text-[10px] px-2.5 py-0.5 rounded-full border border-[#00F2FE]/30 text-[#00F2FE] bg-[#00F2FE]/10 font-bold">
@@ -99,13 +100,14 @@ export const ReposView: React.FC<ReposViewProps> = ({ onSelectRepoFile, onConnec
         {/* Connect Button */}
         <button
           onClick={() => setShowConnectModal(true)}
-          className="w-full mt-2 py-4 px-6 rounded-2xl bg-[#1A1A22] text-[#FFD700] border-2 border-[#FFD700] shadow-[0_0_15px_rgba(255,215,0,0.2)] hover:bg-[#2A2A34] hover:shadow-[0_0_25px_rgba(255,215,0,0.4)] transition-all flex items-center justify-center gap-3 group active:scale-98"
+          disabled={isConnecting}
+          className="w-full mt-2 py-4 px-6 rounded-2xl bg-[#1A1A22] text-[#FFD700] border-2 border-[#FFD700] shadow-[0_0_15px_rgba(255,215,0,0.2)] hover:bg-[#2A2A34] hover:shadow-[0_0_25px_rgba(255,215,0,0.4)] transition-all flex items-center justify-center gap-3 group active:scale-98 disabled:opacity-40"
         >
           <span className="material-symbols-outlined text-lg group-hover:rotate-90 transition-transform">
-            add_link
+            {isConnecting ? 'sync' : 'add_link'}
           </span>
           <span className="font-code text-xs font-bold uppercase tracking-widest">
-            Connect Your GitHub Arsenal
+            {isConnecting ? 'Connecting...' : 'Connect Your GitHub Arsenal'}
           </span>
         </button>
 

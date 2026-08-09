@@ -19,8 +19,6 @@ export const AIChatPane: React.FC<AIChatPaneProps> = ({
   repoName,
 }) => {
   const [inputText, setInputText] = useState('');
-  const [isRecording, setIsRecording] = useState(false);
-  const [isFocused, setIsFocused] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const aiAvatarUrl = "https://lh3.googleusercontent.com/aida-public/AB6AXuCWMr6UDCI8X4xEM1zXUlvo-t1nSmQcrXOzrH8QQHfd5PEgaZA09eW4CLuKdgyB1EMp1SYFeytdw3VqUNvrncCFpx5r5N9nmoH4zL8DjVGLArJ4uD5GeseNIpPEFNTbgQoQpNFGtFwHo7tI0sF8W2CMf3cjVCn7I5UJ2FkOgeV6_COr7cPsOlQ-oyg6FW2hqLNDiYOH3P_fZRaNRHwHDufHE2RCXUuXSkT0-HRhmvjEw88P_f1utFlNsw";
@@ -36,18 +34,6 @@ export const AIChatPane: React.FC<AIChatPaneProps> = ({
     if (!inputText.trim() || isLoading) return;
     onSendMessage(inputText.trim());
     setInputText('');
-  };
-
-  const toggleMic = () => {
-    if (isRecording) {
-      setIsRecording(false);
-    } else {
-      setIsRecording(true);
-      setTimeout(() => {
-        setInputText("Explain authenticateUser and highlight authorization headers");
-        setIsRecording(false);
-      }, 1500);
-    }
   };
 
   return (
@@ -161,27 +147,11 @@ export const AIChatPane: React.FC<AIChatPaneProps> = ({
       {/* Input Bar */}
       <div className="p-3 md:p-4 bg-[#08080C] border-t border-[#1A1A22] relative z-20">
         <form onSubmit={handleSubmit} className="flex items-center gap-2 relative">
-          {/* Voice Mic Button */}
-          <button
-            type="button"
-            onClick={toggleMic}
-            className={`w-10 h-10 flex-shrink-0 flex items-center justify-center rounded-full transition-all ${
-              isRecording
-                ? 'bg-red-500/20 text-red-400 border border-red-500 animate-pulse'
-                : 'text-[#A0A0A0] hover:text-[#00F2FE] hover:bg-[#1A1A22]'
-            }`}
-            title="Voice input"
-          >
-            <span className="material-symbols-outlined text-lg">mic</span>
-          </button>
-
           {/* Text Input */}
           <input
             type="text"
             value={inputText}
             onChange={(e) => setInputText(e.target.value)}
-            onFocus={() => setIsFocused(true)}
-            onBlur={() => setIsFocused(false)}
             placeholder={isRepoMode ? `Ask about ${repoName || 'the repo'}...` : "Ask Iron Bat about the code..."}
             className="flex-1 bg-[#1A1A22] border border-[#3A3A44] rounded-full py-2.5 px-4 font-code text-xs md:text-sm text-[#E0E0E0] placeholder-[#6A7280] focus:outline-none focus:border-[#00F2FE] focus:shadow-[0_0_12px_rgba(0,242,254,0.3)] transition-all"
           />

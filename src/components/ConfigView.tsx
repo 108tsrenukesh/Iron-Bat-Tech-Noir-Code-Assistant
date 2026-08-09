@@ -146,9 +146,7 @@ export const ConfigView: React.FC = () => {
               onChange={(e) => setConfig({ ...config, model: e.target.value })}
               className="bg-[#101018] border border-[#3A3A44] text-[#00F2FE] p-2.5 rounded-xl focus:outline-none focus:border-[#00F2FE]"
             >
-              <option value="gemini-3.6-flash">Gemini 3.6 Flash (Optimal Precision & Speed)</option>
-              <option value="quantum-trace">Quantum Execution Trace Engine</option>
-              <option value="tech-noir-reasoning">Tech-Noir Reasoning v2</option>
+              <option value="gemini-3.6-flash">Gemini 3.6 Flash</option>
             </select>
           </div>
 

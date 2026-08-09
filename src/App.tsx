@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { AppTab, ChatMessage, CodeFile, RepoMeta, ConnectedRepo } from './types';
 import { INITIAL_FILES } from './data/mockCodebase';
@@ -19,11 +19,12 @@ import { SearchModal } from './components/SearchModal';
 export default function App() {
   const [activeTab, setActiveTab] = useState<AppTab>('assistant');
   const [currentFileId, setCurrentFileId] = useState<string>('auth.js');
-  const [files, setFiles] = useState<Record<string, CodeFile>>(INITIAL_FILES);
+  const [files] = useState<Record<string, CodeFile>>(INITIAL_FILES);
   const [isCodeCollapsed, setIsCodeCollapsed] = useState(false);
   const [codeSplitRatio, setCodeSplitRatio] = useState<number>(45);
   const [showSearch, setShowSearch] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [isConnectingRepo, setIsConnectingRepo] = useState(false);
 
   const isDraggingRef = useRef(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -57,15 +58,8 @@ export default function App() {
 
   const currentFile = files[currentFileId] || files['auth.js'];
 
-  const handleMouseDown = () => {
-    isDraggingRef.current = true;
-    document.addEventListener('mousemove', handleMouseMove);
-    document.addEventListener('mouseup', handleMouseUp);
-    document.addEventListener('touchmove', handleTouchMove);
-    document.addEventListener('touchend', handleMouseUp);
-  };
-
-  const updateSplit = (clientY: number) => {
+  // ── Drag handling with proper cleanup ─────────────────────────
+  const updateSplit = useCallback((clientY: number) => {
     if (!containerRef.current) return;
     const rect = containerRef.current.getBoundingClientRect();
     const offsetY = clientY - rect.top;
@@ -74,87 +68,107 @@ export default function App() {
     if (ratio > 80) ratio = 80;
     setCodeSplitRatio(ratio);
     if (isCodeCollapsed) setIsCodeCollapsed(false);
-  };
+  }, [isCodeCollapsed]);
 
-  const handleMouseMove = (e: MouseEvent) => { if (isDraggingRef.current) updateSplit(e.clientY); };
-  const handleTouchMove = (e: TouchEvent) => { if (isDraggingRef.current) updateSplit(e.touches[0].clientY); };
-  const handleMouseUp = () => {
-    isDraggingRef.current = false;
-    document.removeEventListener('mousemove', handleMouseMove);
-    document.removeEventListener('mouseup', handleMouseUp);
-    document.removeEventListener('touchmove', handleTouchMove);
-    document.removeEventListener('touchend', handleMouseUp);
-  };
+  useEffect(() => {
+    const onMouseMove = (e: MouseEvent) => { if (isDraggingRef.current) updateSplit(e.clientY); };
+    const onTouchMove = (e: TouchEvent) => { if (isDraggingRef.current && e.touches[0]) updateSplit(e.touches[0].clientY); };
+    const onEnd = () => { isDraggingRef.current = false; };
 
-  // ── Connect a GitHub repo ────────────────────────────────────────
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onEnd);
+    document.addEventListener('touchmove', onTouchMove);
+    document.addEventListener('touchend', onEnd);
+    return () => {
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup', onEnd);
+      document.removeEventListener('touchmove', onTouchMove);
+      document.removeEventListener('touchend', onEnd);
+    };
+  }, [updateSplit]);
+
+  // ── Connect repo ──────────────────────────────────────────────
   const handleConnectRepo = async (repoUrl: string): Promise<void> => {
-    const res = await fetch(`/api/repo?url=${encodeURIComponent(repoUrl)}`);
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Failed to connect');
+    setIsConnectingRepo(true);
+    try {
+      const res = await fetch(`/api/repo?url=${encodeURIComponent(repoUrl)}`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to connect');
 
-    const repoMeta: RepoMeta = {
-      owner: data.owner,
-      repo: data.repo,
-      branch: data.branch,
-      totalFiles: data.totalFiles,
-      filteredFiles: data.filteredFiles,
-      files: data.files,
-      readme: data.readme || '',
-    };
+      const repoMeta: RepoMeta = {
+        owner: data.owner,
+        repo: data.repo,
+        branch: data.branch,
+        totalFiles: data.totalFiles,
+        filteredFiles: data.filteredFiles,
+        files: data.files,
+        readme: data.readme || '',
+      };
 
-    const conn: ConnectedRepo = {
-      id: `repo-${Date.now()}`,
-      owner: data.owner,
-      repo: data.repo,
-      branch: data.branch,
-      filteredFiles: data.filteredFiles,
-      totalFiles: data.totalFiles,
-      connectedAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-    };
+      const conn: ConnectedRepo = {
+        id: `repo-${Date.now()}`,
+        owner: data.owner,
+        repo: data.repo,
+        branch: data.branch,
+        filteredFiles: data.filteredFiles,
+        totalFiles: data.totalFiles,
+        connectedAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      };
 
-    setConnectedRepos((prev) => [conn, ...prev]);
-    setActiveRepoMeta(repoMeta);
+      setConnectedRepos((prev) => [conn, ...prev]);
+      setActiveRepoMeta(repoMeta);
 
-    // Fetch key files for context
-    const keyExts = ['.md', '.json', '.ts', '.tsx', '.js', '.jsx', '.py', '.go', '.rs', '.yaml', '.yml', '.toml'];
-    const important = data.files
-      .filter((f: any) => {
-        const name = f.path.split('/').pop()?.toLowerCase() || '';
-        return name === 'readme.md' || name === 'package.json' || name === 'cargo.toml' || name === 'go.mod' || keyExts.includes(f.ext);
-      })
-      .slice(0, 8);
+      // Fetch key files
+      const important = data.files
+        .filter((f: any) => {
+          const name = f.path.split('/').pop()?.toLowerCase() || '';
+          return name === 'readme.md' || name === 'package.json' || name === 'cargo.toml' || name === 'go.mod' ||
+            ['.ts', '.tsx', '.js', '.jsx', '.py', '.go', '.rs', '.yaml', '.yml', '.toml', '.md', '.json'].includes(f.ext);
+        })
+        .slice(0, 8);
 
-    const contents: Record<string, string> = {};
-    for (const file of important) {
-      try {
-        const fileRes = await fetch(`/api/file?owner=${data.owner}&repo=${data.repo}&branch=${data.branch}&filepath=${encodeURIComponent(file.path)}`);
-        const fileData = await fileRes.json();
-        if (fileRes.ok && fileData.content) {
-          contents[file.path] = fileData.content;
-        }
-      } catch { /* skip */ }
+      const contents: Record<string, string> = {};
+      for (const file of important) {
+        try {
+          const fileRes = await fetch(`/api/file?owner=${data.owner}&repo=${data.repo}&branch=${data.branch}&filepath=${encodeURIComponent(file.path)}`);
+          const fileData = await fileRes.json();
+          if (fileRes.ok && fileData.content) contents[file.path] = fileData.content;
+        } catch { /* skip */ }
+      }
+      setActiveRepoFileContents(contents);
+
+      setActiveTab('assistant');
+      setMessages([{
+        id: `repo-welcome-${Date.now()}`,
+        sender: 'ai',
+        text: `Connected to ${data.owner}/${data.repo} (${data.filteredFiles} files indexed).\n\nReady for codebase analysis. Ask me anything.`,
+        statusLabel: 'REPO CONNECTED',
+        bullets: [
+          `${data.totalFiles} total files, ${data.filteredFiles} relevant`,
+          `Branch: ${data.branch}`,
+          data.readme ? 'README loaded' : 'No README found',
+        ],
+        snippetAction: 'What is this repo about?',
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      }]);
+    } finally {
+      setIsConnectingRepo(false);
     }
-    setActiveRepoFileContents(contents);
-
-    // Switch to AI tab with welcome message
-    setActiveTab('assistant');
-    setMessages([{
-      id: `repo-welcome-${Date.now()}`,
-      sender: 'ai',
-      text: `Connected to ${data.owner}/${data.repo} (${data.filteredFiles} files analyzed).\n\nReady for codebase analysis. Ask me anything about this repository.`,
-      statusLabel: 'REPO CONNECTED',
-      bullets: [
-        `${data.totalFiles} total files, ${data.filteredFiles} relevant files indexed`,
-        `Branch: ${data.branch}`,
-        data.readme ? 'README loaded into context' : 'No README found',
-      ],
-      snippetAction: 'What is this repo about?',
-      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-    }]);
   };
 
-  // ── Send a chat message ──────────────────────────────────────────
-  const handleSendMessage = async (text: string) => {
+  // ── Disconnect repo ───────────────────────────────────────────
+  const handleDisconnectRepo = useCallback((repoId: string) => {
+    setConnectedRepos((prev) => prev.filter((r) => r.id !== repoId));
+    if (activeRepoMeta) {
+      setActiveRepoMeta(null);
+      setActiveRepoFileContents({});
+    }
+  }, [activeRepoMeta]);
+
+  // ── Send chat message (race-safe via functional update) ───────
+  const handleSendMessage = useCallback(async (text: string) => {
+    if (isLoading) return;
+
     const userMsg: ChatMessage = {
       id: `user-${Date.now()}`,
       sender: 'user',
@@ -167,10 +181,15 @@ export default function App() {
     try {
       const body: any = {
         message: text,
-        history: messages.slice(-6).map((m) => ({ role: m.sender, text: m.text })),
+        history: [], // will be set from current messages
       };
 
-      // Repo mode: send file tree + key file contents
+      // Get latest messages for history (functional update avoids stale closure)
+      setMessages((prev) => {
+        body.history = prev.slice(-6).map((m) => ({ role: m.sender, text: m.text }));
+        return prev; // no state change, just reading
+      });
+
       if (activeRepoMeta) {
         body.repoMeta = activeRepoMeta;
         body.repoFiles = activeRepoMeta.files;
@@ -189,7 +208,7 @@ export default function App() {
       });
 
       const data = await response.json();
-      let replyText = data.reply || 'Scan completed successfully.';
+      let replyText = data.reply || 'Scan completed.';
       let bullets: string[] = data.bullets || [];
 
       if (replyText.includes('›')) {
@@ -198,7 +217,7 @@ export default function App() {
         bullets = parts.slice(1).map((b: string) => b.trim()).filter(Boolean);
       }
 
-      const aiMsg: ChatMessage = {
+      setMessages((prev) => [...prev, {
         id: `ai-${Date.now()}`,
         sender: 'ai',
         text: replyText,
@@ -206,37 +225,46 @@ export default function App() {
         bullets: bullets.length > 0 ? bullets : undefined,
         snippetAction: text.toLowerCase().includes('trace') ? 'View Trace Sequence' : 'Check Security Vulnerabilities',
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      };
-      setMessages((prev) => [...prev, aiMsg]);
-    } catch (err) {
-      console.error('Chat error:', err);
-      const fallbackMsg: ChatMessage = {
+      }]);
+    } catch {
+      setMessages((prev) => [...prev, {
         id: `ai-err-${Date.now()}`,
         sender: 'ai',
-        text: 'Analysis Complete: Scanned function block. No structural syntax errors detected.',
-        statusLabel: 'ANALYSIS COMPLETE',
-        bullets: ['Verified request headers and authorization parameters.', 'Decodes JWT bearer token using environment secret.'],
-        snippetAction: 'Check Security Vulnerabilities',
+        text: 'Connection error. Check your network and try again.',
+        statusLabel: 'ERROR',
+        bullets: ['Server may be restarting.', 'Try again in a few seconds.'],
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      };
-      setMessages((prev) => [...prev, fallbackMsg]);
+      }]);
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [isLoading, activeRepoMeta, activeRepoFileContents, currentFile]);
 
-  const handleSuggestionClick = (suggestion: string) => {
+  const handleSuggestionClick = useCallback((suggestion: string) => {
+    if (isLoading) return;
     if (suggestion === 'Trace Sequence' || suggestion === 'View Trace Sequence') {
       setActiveTab('trace');
     } else {
       handleSendMessage(suggestion);
     }
-  };
+  }, [isLoading, handleSendMessage]);
 
-  const handleSelectRepoFile = (repoId: string, fileName: string) => {
+  const handleSelectRepoFile = useCallback((repoId: string, fileName: string) => {
     if (fileName && files[fileName]) setCurrentFileId(fileName);
     setActiveTab('assistant');
-  };
+  }, [files]);
+
+  // ── Keyboard shortcut for search ──────────────────────────────
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault();
+        setShowSearch((prev) => !prev);
+      }
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, []);
 
   return (
     <div className="min-h-screen bg-[#050508] text-[#E0E0E0] font-sans flex flex-col relative overflow-hidden">
@@ -278,8 +306,8 @@ export default function App() {
                     />
                   </div>
                   <div
-                    onMouseDown={handleMouseDown}
-                    onTouchStart={handleMouseDown}
+                    onMouseDown={() => { isDraggingRef.current = true; }}
+                    onTouchStart={() => { isDraggingRef.current = true; }}
                     className="h-[24px] flex-shrink-0 bg-[#1A1A22] border-t border-b border-[#3A3A44] flex items-center justify-between px-4 cursor-row-resize select-none relative z-30 group hover:bg-[#22222A] transition-colors"
                   >
                     <div className="w-6" />
@@ -290,7 +318,6 @@ export default function App() {
                   </div>
                 </>
               ) : (
-                /* Repo mode: show file tree summary bar */
                 <div className="h-12 flex-shrink-0 bg-[#1A1A22] border-b border-[#3A3A44] flex items-center px-4 gap-3">
                   <span className="material-symbols-outlined text-[#00F2FE] text-sm">folder_open</span>
                   <span className="font-code text-xs text-[#E0E0E0] font-bold">{activeRepoMeta.owner}/{activeRepoMeta.repo}</span>
@@ -298,6 +325,13 @@ export default function App() {
                   <span className="font-code text-[10px] text-[#00F2FE]">{activeRepoMeta.filteredFiles} files</span>
                   <span className="font-code text-[10px] text-[#A0A0A0]">·</span>
                   <span className="font-code text-[10px] text-[#A0A0A0]">{activeRepoMeta.branch}</span>
+                  <button
+                    onClick={() => { setActiveRepoMeta(null); setActiveRepoFileContents({}); }}
+                    className="ml-auto text-[#A0A0A0] hover:text-red-400 transition-colors"
+                    title="Disconnect repo"
+                  >
+                    <span className="material-symbols-outlined text-sm">link_off</span>
+                  </button>
                 </div>
               )}
 
@@ -308,7 +342,7 @@ export default function App() {
                   isLoading={isLoading}
                   onSuggestionClick={handleSuggestionClick}
                   isRepoMode={!!activeRepoMeta}
-                  repoName={activeRepoMeta ? `${activeRepoMeta.repo}` : undefined}
+                  repoName={activeRepoMeta?.repo}
                 />
               </div>
             </motion.div>
@@ -322,7 +356,13 @@ export default function App() {
 
           {activeTab === 'repos' && (
             <motion.div key="repos" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="flex-1 overflow-hidden">
-              <ReposView onSelectRepoFile={handleSelectRepoFile} onConnectRepo={handleConnectRepo} connectedRepos={connectedRepos} />
+              <ReposView
+                onSelectRepoFile={handleSelectRepoFile}
+                onConnectRepo={handleConnectRepo}
+                onDisconnectRepo={handleDisconnectRepo}
+                connectedRepos={connectedRepos}
+                isConnecting={isConnectingRepo}
+              />
             </motion.div>
           )}
 
