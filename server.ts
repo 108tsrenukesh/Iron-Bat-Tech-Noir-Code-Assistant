@@ -132,19 +132,19 @@ async function fetchWithTimeout(url: string, opts: RequestInit = {}, timeoutMs =
   }
 }
 
-// ── Groq fallback helper ──────────────────────────────────────────
-async function callGrok(systemInstruction: string, userPrompt: string): Promise<string | null> {
-  const apiKey = process.env.GROK_API_KEY;
+// ── OpenRouter fallback helper ─────────────────────────────────────
+async function callFallback(systemInstruction: string, userPrompt: string): Promise<string | null> {
+  const apiKey = process.env.OPENROUTER_API_KEY;
   if (!apiKey || apiKey.length < 10) return null;
 
-  const res = await fetchWithTimeout("https://api.groq.com/openai/v1/chat/completions", {
+  const res = await fetchWithTimeout("https://openrouter.ai/api/v1/chat/completions", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${apiKey}`,
     },
     body: JSON.stringify({
-      model: "llama-3.3-70b-versatile",
+      model: "deepseek/deepseek-chat-v3-0324:free",
       messages: [
         { role: "system", content: systemInstruction },
         { role: "user", content: userPrompt },
@@ -155,7 +155,7 @@ async function callGrok(systemInstruction: string, userPrompt: string): Promise<
 
   if (!res.ok) {
     const errBody = await res.text().catch(() => "");
-    console.error(`Groq API error (${res.status}):`, errBody.slice(0, 200));
+    console.error(`OpenRouter API error (${res.status}):`, errBody.slice(0, 200));
     return null;
   }
   const data = await res.json() as any;
@@ -195,7 +195,7 @@ async function startServer() {
     res.json({
       status: "ok",
       hasGeminiKey: Boolean(getGeminiClient()),
-      hasGrokKey: Boolean(process.env.GROK_API_KEY && process.env.GROK_API_KEY.length > 10),
+      hasGrokKey: Boolean(process.env.OPENROUTER_API_KEY && process.env.OPENROUTER_API_KEY.length > 10),
       timestamp: new Date().toISOString(),
     });
   });
@@ -428,7 +428,7 @@ RULES:
         const isQuota = geminiErr?.message?.includes("quota") || geminiErr?.message?.includes("429") || geminiErr?.message?.includes("RESOURCE_EXHAUSTED");
         if (isQuota) {
           console.log("Gemini quota hit, falling back to Grok");
-          const grokReply = await callGrok(systemInstruction, fullPrompt);
+          const grokReply = await callFallback(systemInstruction, fullPrompt);
           if (grokReply) {
             replyText = grokReply;
             usedProvider = "grok";
