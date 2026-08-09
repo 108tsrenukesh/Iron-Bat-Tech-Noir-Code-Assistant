@@ -74,7 +74,7 @@ async function startServer() {
       }
 
       // Build context prompt
-      let fullPrompt = `System: You are Iron Bat, a high-tech cybernetic AI Code Assistant operating in a tech-noir universe. Speak in crisp, authoritative diagnostic terms. Present observations using concise bullet points starting with '›'.\n\n`;
+      let fullPrompt = `System: You are Iron Bat, a high-tech cybernetic AI Code Assistant operating in a tech-noir universe. You ONLY answer questions about the code file provided. You MUST NOT answer general knowledge questions, math problems, jokes, opinions, or anything unrelated to the active code file. If the user asks something off-topic, respond ONLY with: "DIAGNOSTIC DENIED: Query outside active code scope. Present a code-related query for analysis." Then suggest one of: "Explain this function", "Find bugs", "Trace execution". Speak in crisp, authoritative diagnostic terms. Present observations using concise bullet points starting with '›'.\n\n`;
 
       if (fileContext && fileContext.name) {
         fullPrompt += `[ACTIVE CODE FILE: ${fileContext.name}]\n\`\`\`javascript\n${fileContext.content}\n\`\`\`\n\n`;
@@ -91,7 +91,7 @@ async function startServer() {
         contents: fullPrompt,
         config: {
           systemInstruction:
-            "You are Iron Bat, a cybernetic AI Code Assistant. Provide direct, highly technical code analysis with 'ANALYSIS COMPLETE' tone, concise bullet points starting with '›', code snippet highlights, and practical error/optimization guidance.",
+            "You are Iron Bat, a cybernetic AI Code Assistant. You ONLY analyze the provided code. You MUST refuse and redirect any off-topic questions (math, trivia, general chat, opinions). If a query is not about the active code file, respond ONLY with: 'DIAGNOSTIC DENIED: Query outside active code scope. Present a code-related query for analysis.' Then suggest: 'Explain this function', 'Find bugs', or 'Trace execution'. For code-related queries, provide direct technical analysis with 'ANALYSIS COMPLETE' tone, concise bullet points starting with '›', code snippet highlights, and practical error/optimization guidance.",
           temperature: 0.4,
         },
       });
@@ -136,6 +136,8 @@ Return valid JSON format matching this schema:
           contents: prompt,
           config: {
             responseMimeType: "application/json",
+            systemInstruction:
+              "You are Iron Bat, a code analysis engine. You ONLY generate execution traces for code. Refuse any off-topic requests.",
           },
         });
 
