@@ -386,16 +386,7 @@ RULES:
       const response = await ai.models.generateContent({
         model: "gemini-2.0-flash",
         contents: fullPrompt,
-        config: {
-          systemInstruction,
-          temperature: 0.4,
-          safetySettings: [
-            { category: "dangerous_content", threshold: "block_medium_and_above" },
-            { category: "hate_speech", threshold: "block_medium_and_above" },
-            { category: "harassment", threshold: "block_medium_and_above" },
-            { category: "sexually_explicit", threshold: "block_medium_and_above" },
-          ],
-        },
+        config: { systemInstruction, temperature: 0.4 },
       });
 
       const replyText = response.text?.trim() || "Analysis complete. Try asking about the repo structure, security features, or specific files.";
